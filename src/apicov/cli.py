@@ -1,5 +1,7 @@
 import argparse
 import runpy
+import sys
+import traceback
 from contextlib import contextmanager
 from typing import Self
 
@@ -28,14 +30,20 @@ def instrument_runpy(tracer):
         del runpy.exec
 
 
-def main() -> None:
+def main() -> int:
     parser = argparse.ArgumentParser(description="API Coverage tool")
     parser.add_argument("script", help="Path to the script to execute")
     args = parser.parse_args()
 
     tracer = Tracer(args.script)
-    with instrument_runpy(tracer):
-        runpy.run_path(args.script, run_name="__main__")
+    exit_code = 0
+    try:
+        with instrument_runpy(tracer):
+            runpy.run_path(args.script, run_name="__main__")
+    except Exception:
+        # print traceback, but continue execution to also print the report
+        traceback.print_exc()
+        exit_code = 1
 
     header = f"Captured {len(tracer.traced_funcs)} called functions in {tracer.filename}:"
     print("=" * len(header))
@@ -53,6 +61,8 @@ def main() -> None:
         )
         print(f" * {qualname}{new_sig}")
 
+    return exit_code
+
 
 class _RecorderFormatter:
     def __init__(self, recorder: TypeRecorder):
@@ -67,4 +77,4 @@ class _RecorderFormatter:
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
