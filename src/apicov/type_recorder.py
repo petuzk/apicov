@@ -6,16 +6,20 @@ It also provides a method to format the result back to a type hint
 string, using colors to indicate whether the type was seen or not.
 """
 
-from abc import ABC
+from abc import ABC, abstractmethod
 from typing_inspect import get_args, is_union_type
+
+from rich.markup import escape
 
 
 class TypeRecorder(ABC):
     """Abstract base class for type recorders."""
 
+    @abstractmethod
     def record_seen(self, value: object) -> None:
         """Record a value seen for this type annotation."""
 
+    @abstractmethod
     def format(self) -> str:
         """Represent this type annotation depending on wheter it was seen."""
 
@@ -29,33 +33,37 @@ def get_recorder(typ: type) -> TypeRecorder:
     return SimpleTypeRecorder(typ)
 
 
-class SimpleTypeRecorder(TypeRecorder):
+class ColorFlagRecorder(TypeRecorder):
+    """Format `label` in red or green depending on `is_seen` flag."""
+
+    def __init__(self, label: str, is_seen: bool):
+        self.label = label
+        self.is_seen = is_seen
+
+    def format(self) -> str:
+        color = "green" if self.is_seen else "red"
+        return f"[{color} bold]{escape(self.label)}[/]"
+
+
+class SimpleTypeRecorder(ColorFlagRecorder):
     """Record simple types recognized by `isinstance` check."""
 
     def __init__(self, typ: type):
+        super().__init__(label=typ.__name__, is_seen=False)
         self.typ = typ
-        self.is_seen = False
 
     def record_seen(self, value: object) -> None:
         self.is_seen = self.is_seen or isinstance(value, self.typ)
 
-    def format(self) -> str:
-        color = "green" if self.is_seen else "red"
-        return f"[{color} bold]{self.typ.__name__}[/]"
 
-
-class NoneTypeRecorder(TypeRecorder):
+class NoneTypeRecorder(ColorFlagRecorder):
     """Record None (and NoneType)."""
 
     def __init__(self):
-        self.is_seen = False
+        super().__init__(label="None", is_seen=False)
 
     def record_seen(self, value: object) -> None:
         self.is_seen = self.is_seen or value is None
-
-    def format(self) -> str:
-        color = "green" if self.is_seen else "red"
-        return f"[{color} bold]None[/]"
 
 
 class UnionTypeRecorder(TypeRecorder):
