@@ -9,6 +9,7 @@ import sys
 import inspect
 from dataclasses import dataclass
 from types import CodeType
+from typing import Self
 
 from apicov.type_recorder import TypeRecorder, get_recorder
 
@@ -42,20 +43,21 @@ class Tracer:
     def __init__(self, filename: str):
         self.filename = filename
         self.traced_funcs: dict[str, FuncInfo] = {}
+        # _known_codes stores same FuncInfo instances as traced_funcs,
+        # or None if the code is not traceable
+        self._known_codes: dict[CodeType, FuncInfo | None] = {}
 
-    def __enter__(self):
+    def __enter__(self) -> Self:
         self.call_stack: list[tuple[CodeType, FuncInfo | None]] = []
         self.tool_id = _get_tool_id()
         _sm.use_tool_id(self.tool_id, "apicov")
         _sm.register_callback(self.tool_id, _sm.events.PY_START, self._start_callback)
         _sm.register_callback(self.tool_id, _sm.events.PY_RETURN, self._return_callback)
         _sm.register_callback(self.tool_id, _sm.events.PY_UNWIND, self._unwind_callback)
-        _sm.set_events(
-            self.tool_id, _sm.events.PY_START | _sm.events.PY_RETURN | _sm.events.PY_UNWIND
-        )
+        _sm.set_events(self.tool_id, _sm.events.PY_START | _sm.events.PY_RETURN | _sm.events.PY_UNWIND)
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
         _sm.set_events(self.tool_id, _sm.events.NO_EVENTS)
         _sm.free_tool_id(self.tool_id)
 
@@ -78,31 +80,39 @@ class Tracer:
     def _start_callback_inner(self, code: CodeType) -> None:
         # if this `code` hasn't been seen before, try to get its signature
         # and prepare recorders for its parameters and return type
-        if code.co_qualname not in self.traced_funcs:
+        if code not in self._known_codes:
             module_name = sys._getframemodulename(2)  # 2nd caller's frame is the monitored code frame
-            module = sys.modules[module_name]
             try:
+                module = sys.modules[module_name]  # type: ignore # EAFP
                 # this may raise different exceptions because `code` may be
                 # a module, a class body or other non-function code object
-                # in that case we just don't record any information about it
+                # in that case we just don't trace it
                 obj = _get_object(module, code.co_qualname)
-                signature = inspect.signature(obj)
+                signature = inspect.signature(obj)  # type: ignore # EAFP
             except Exception:
-                signature = None
+                # remember that this code object is not traceable, so we don't have to try again
+                self._known_codes[code] = None
             else:
                 # create recorders based on the signature
-                self.traced_funcs[code.co_qualname] = FuncInfo(
-                    signature,
-                    [_get_recorder_for_annotation(param.annotation) for param in signature.parameters.values()],
-                    _get_recorder_for_annotation(signature.return_annotation),
-                )
+                fullname = f"{module_name}:{code.co_qualname}"
+                if fullname in self.traced_funcs:
+                    # this is very unlikely, but may theoretically happen if a function is somehow freed
+                    # and then recompiled -- we still want to trace it into the same FuncInfo
+                    func_info = self.traced_funcs[fullname]
+                else:
+                    func_info = self.traced_funcs[fullname] = FuncInfo(
+                        signature,
+                        [_get_recorder_for_annotation(param.annotation) for param in signature.parameters.values()],
+                        _get_recorder_for_annotation(signature.return_annotation),
+                    )
+                self._known_codes[code] = func_info
 
-        # if this function is traceable (present in traced_funcs), record seen values
-        traced_func = self.traced_funcs.get(code.co_qualname)
+        # if this function is traceable (code maps to a FuncInfo), record seen values
+        traced_func = self._known_codes[code]
         if traced_func is not None:
             frame = sys._getframe(2)  # 2nd caller's frame is the monitored code frame
             assert frame.f_code is code
-            for param, recorder in zip(traced_func.signature.parameters, self.traced_funcs[code.co_qualname].param_rec):
+            for param, recorder in zip(traced_func.signature.parameters, traced_func.param_rec):
                 if recorder is not None:
                     recorder.record_seen(frame.f_locals[param])
 
@@ -119,10 +129,11 @@ class Tracer:
             raise MonitoringCallbackError from e
 
     def _return_callback_inner(self, code: CodeType, retval: object) -> None:
-        started_code, record = self.call_stack.pop()
+        started_code, traced_func = self.call_stack.pop()
         assert started_code is code, f"mismatched start and return events: {started_code}, {code}"
-        if record is not None and record.return_rec is not None:
-            record.return_rec.record_seen(retval)
+
+        if traced_func is not None and (recorder := traced_func.return_rec) is not None:
+            recorder.record_seen(retval)
 
     def _unwind_callback(self, code: CodeType, instruction_offset: int, exception: BaseException) -> None:
         if isinstance(exception, MonitoringCallbackError):
