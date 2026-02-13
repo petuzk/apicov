@@ -3,6 +3,7 @@ import runpy
 import sys
 import traceback
 from contextlib import contextmanager
+from functools import lru_cache
 from typing import Self
 
 from rich import print
@@ -30,12 +31,21 @@ def instrument_runpy(tracer):
         del runpy.exec
 
 
+@lru_cache
+def should_trace(filename: str) -> bool:
+    if filename.startswith("<") and filename.endswith(">"):
+        return False  # this is not a file on disk but some magic thing, skip it
+    if filename.startswith(sys.base_prefix):
+        return False  # skip standard library
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="API Coverage tool")
     parser.add_argument("script", help="Path to the script to execute")
     args = parser.parse_args()
 
-    tracer = Tracer(args.script)
+    tracer = Tracer(should_trace)
     exit_code = 0
     try:
         with instrument_runpy(tracer):
@@ -45,7 +55,7 @@ def main() -> int:
         traceback.print_exc()
         exit_code = 1
 
-    header = f"Captured {len(tracer.traced_funcs)} called functions in {tracer.filename}:"
+    header = f"Captured {len(tracer.traced_funcs)} called functions in {args.script}:"
     print("=" * len(header))
     print(header)
     for qualname, func_info in tracer.traced_funcs.items():
