@@ -42,20 +42,30 @@ def should_trace(filename: str) -> bool:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="API Coverage tool")
-    parser.add_argument("script", help="Path to the script to execute")
+    parser.add_argument("script", nargs="?", default=None, help="Path to the script to execute")
+    parser.add_argument("-m", dest="module", help="Run given module as a script")
     args = parser.parse_args()
+
+    if args.script and args.module:
+        parser.error("cannot specify both a script and a module to run")
+    elif not args.script and not args.module:
+        parser.print_help()
+        return 1
 
     tracer = Tracer(should_trace)
     exit_code = 0
     try:
         with instrument_runpy(tracer):
-            runpy.run_path(args.script, run_name="__main__")
+            if args.script:
+                runpy.run_path(args.script, run_name="__main__")
+            else:
+                runpy.run_module(args.module, run_name="__main__")
     except Exception:
         # print traceback, but continue execution to also print the report
         traceback.print_exc()
         exit_code = 1
 
-    header = f"Captured {len(tracer.traced_funcs)} called functions in {args.script}:"
+    header = f"Captured {len(tracer.traced_funcs)} called functions in {args.script or args.module}:"
     print("=" * len(header))
     print(header)
     for qualname, func_info in tracer.traced_funcs.items():
