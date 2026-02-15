@@ -4,13 +4,11 @@ import sys
 import traceback
 from contextlib import contextmanager
 from functools import lru_cache
-from typing import Self
 
 from rich import print
 
 from apicov.func_tracer import FuncTracer
 from apicov.sysmon import Tracer
-from apicov.type_recorder import TypeRecorder
 
 
 @contextmanager
@@ -70,31 +68,26 @@ def main() -> int:
     print("=" * len(header))
     print(header)
     for fullname, func_info in tracer.traced_funcs.items():
-        # replace real annotations with recorder formatters to inject colored output
-        new_sig = func_info.signature.replace(
-            parameters=[
-                param.replace(annotation=_RecorderFormatter.from_recorder(recorder) or param.annotation)
-                for param, recorder in zip(func_info.signature.parameters.values(), func_info.param_rec)
-            ],
-            return_annotation=(
-                _RecorderFormatter.from_recorder(func_info.return_rec) or func_info.signature.return_annotation
-            ),
-        )
-        print(f" * {fullname.module}:{fullname.qualname}{new_sig}")
+        formatted_name = f"[bold]{fullname.module}[/].[blue bold]{fullname.qualname}[/]"
+        for overload, calls in func_info.matched_calls.items():
+            print(f"{formatted_name}[bold]{overload.signature}[/]:")
+            if not calls:
+                print("  [italic]no calls[/]")
+            for matches, outcome, result in calls:
+                params_str = ", ".join(str(m) for m in matches)
+                if outcome == "return":
+                    print(f"  ({params_str}) -> {result or '[italic]unmatched[/]'}")
+                else:
+                    print(f"  ({params_str}) raised {result}")
+        if func_info.unmatched_calls:
+            print(f"{formatted_name} [italic]unmatched[/]:")
+            for args_str, outcome, result in func_info.unmatched_calls:
+                if outcome == "return":
+                    print(f"  ({args_str}) -> {result}")
+                else:
+                    print(f"  ({args_str}) raised {result}")
 
     return exit_code
-
-
-class _RecorderFormatter:
-    def __init__(self, recorder: TypeRecorder):
-        self.recorder = recorder
-
-    def __repr__(self):
-        return self.recorder.format()
-
-    @classmethod
-    def from_recorder(cls, recorder: TypeRecorder | None) -> Self | None:
-        return cls(recorder) if recorder is not None else None
 
 
 if __name__ == "__main__":
