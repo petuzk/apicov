@@ -8,6 +8,7 @@ from typing import Self
 
 from rich import print
 
+from apicov.func_tracer import FuncTracer
 from apicov.sysmon import Tracer
 from apicov.type_recorder import TypeRecorder
 
@@ -52,7 +53,7 @@ def main() -> int:
         parser.print_help()
         return 1
 
-    tracer = Tracer(should_trace)
+    tracer = Tracer(should_trace, FuncTracer.from_callable)
     exit_code = 0
     try:
         with instrument_runpy(tracer):
@@ -68,7 +69,7 @@ def main() -> int:
     header = f"Captured {len(tracer.traced_funcs)} called functions in {args.script or args.module}:"
     print("=" * len(header))
     print(header)
-    for qualname, func_info in tracer.traced_funcs.items():
+    for fullname, func_info in tracer.traced_funcs.items():
         # replace real annotations with recorder formatters to inject colored output
         new_sig = func_info.signature.replace(
             parameters=[
@@ -79,7 +80,7 @@ def main() -> int:
                 _RecorderFormatter.from_recorder(func_info.return_rec) or func_info.signature.return_annotation
             ),
         )
-        print(f" * {qualname}{new_sig}")
+        print(f" * {fullname.module}:{fullname.qualname}{new_sig}")
 
     return exit_code
 
