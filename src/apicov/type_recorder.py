@@ -7,9 +7,9 @@ string, using colors to indicate whether the type was seen or not.
 """
 
 from abc import ABC, abstractmethod
-from typing_inspect import get_args, is_union_type
 
 from rich.markup import escape
+from typing_inspect import get_args, is_union_type
 
 
 class TypeRecorder(ABC):

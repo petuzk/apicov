@@ -1,7 +1,8 @@
 import inspect
+from collections.abc import Callable
 from dataclasses import dataclass
 from types import FrameType
-from typing import Any, Callable, Self
+from typing import Any, Self
 
 from apicov.type_recorder import TypeRecorder, get_recorder
 
