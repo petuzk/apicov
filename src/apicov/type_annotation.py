@@ -43,6 +43,22 @@ class NoAnnotation(TypeAnnotation):
         return self._MATCH  # matches everything
 
 
+class SelfAnnotation(TypeAnnotation):
+    """Represents the `Self` type annotation bound to a class."""
+
+    def __init__(self, bound_class: type) -> None:
+        self.bound_class = bound_class
+
+    class Match(TypeMatch):
+        def __str__(self) -> str:
+            return "Self"
+
+    _MATCH = Match()  # singleton match object since it has no data
+
+    def match(self, value: object) -> TypeMatch | None:
+        return self._MATCH if isinstance(value, self.bound_class) else None
+
+
 def get_annotation(annotation: Any) -> TypeAnnotation:
     """Parse a type annotation and return a TypeAnnotation object representing it."""
     if annotation is None or annotation is type(None):

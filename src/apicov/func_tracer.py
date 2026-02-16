@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from types import FrameType
 from typing import Any, Literal, Self, get_overloads
 
-from apicov.type_annotation import NoAnnotation, TypeAnnotation, TypeMatch, get_annotation
+from apicov.type_annotation import NoAnnotation, SelfAnnotation, TypeAnnotation, TypeMatch, get_annotation
 
 
 @dataclass(frozen=True)
@@ -16,17 +16,32 @@ class Overload:
     return_annotation: TypeAnnotation  # type annotation for the return value
 
     @classmethod
-    def from_callable(cls, func: Callable[..., Any]) -> Self:
+    def from_callable(cls, func: Callable[..., Any], encapsulating_class: type | None) -> Self:
         signature = inspect.signature(func)
         return cls(
             signature,
-            tuple(cls._get_annotation(param.annotation) for param in signature.parameters.values()),
-            cls._get_annotation(signature.return_annotation),
+            tuple(
+                cls._get_param_annotation(i, param, encapsulating_class)
+                for i, param in enumerate(signature.parameters.values())
+            ),
+            cls._get_return_annotation(signature, encapsulating_class),
         )
 
     @staticmethod
-    def _get_annotation(annotation: Any) -> TypeAnnotation:
-        if annotation is inspect.Parameter.empty or annotation is inspect.Signature.empty:
+    def _get_param_annotation(index: int, param: inspect.Parameter, encapsulating_class: type | None) -> TypeAnnotation:
+        annotation = param.annotation
+        if (annotation is Self or (index == 0 and param.name == "self")) and encapsulating_class is not None:
+            return SelfAnnotation(encapsulating_class)
+        if annotation is inspect.Parameter.empty:
+            return NoAnnotation()
+        return get_annotation(annotation)
+
+    @staticmethod
+    def _get_return_annotation(signature: inspect.Signature, encapsulating_class: type | None) -> TypeAnnotation:
+        annotation = signature.return_annotation
+        if annotation is Self and encapsulating_class is not None:
+            return SelfAnnotation(encapsulating_class)
+        if annotation is inspect.Signature.empty:
             return NoAnnotation()
         return get_annotation(annotation)
 
@@ -66,8 +81,8 @@ class FuncTracer:
     ]
 
     @classmethod
-    def from_callable(cls, func: Callable[..., Any]) -> Self:
-        overloads = list(map(Overload.from_callable, get_overloads(func) or [func]))
+    def from_callable(cls, func: Callable[..., Any], encapsulating_class: type | None) -> Self:
+        overloads = [Overload.from_callable(f, encapsulating_class) for f in get_overloads(func) or [func]]
         return cls(
             {overload: {} for overload in overloads},
             {},

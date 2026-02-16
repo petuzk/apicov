@@ -5,8 +5,8 @@ This tracer uses the new `sys.monitoring` API to track function calls and their 
 
 import sys
 from collections.abc import Callable
-from types import CodeType, FrameType
-from typing import Any, NamedTuple, Protocol, Self
+from types import CodeType, FrameType, ModuleType
+from typing import Any, NamedTuple, Protocol, Self, TypeGuard
 
 # convenience alias for sys.monitoring, to avoid long names
 _sm = sys.monitoring
@@ -54,11 +54,14 @@ class FuncTracer(Protocol):
 
 
 class GetFuncTracerFn[FT: FuncTracer](Protocol):
-    def __call__(self, func: Callable[..., Any]) -> FT | None:
+    def __call__(self, func: Callable[..., Any], encapsulating_class: type | None) -> FT | None:
         """Given a callable object, return a tracer for it, or None to skip tracing this code.
 
         Exceptions raised in this function will be suppressed
         and treated as if this function returned None.
+
+        For a function defined in a class, `encapsulating_class` is
+        its innermost encapsulating class, to which Self type is bound.
         """
 
 
@@ -141,9 +144,11 @@ class Tracer[FT: FuncTracer]:
             # in that case we just don't trace it
             try:
                 module = sys.modules[fullname.module]
-                obj = _get_object(module, fullname.qualname)
+                obj, encapsulating_obj = _get_obj_and_encapsulating_obj(module, fullname.qualname)
+                if encapsulating_obj is not None and not _is_type(encapsulating_obj):
+                    encapsulating_obj = None
                 if callable(obj):
-                    tracer = self._get_func_tracer(obj)
+                    tracer = self._get_func_tracer(obj, encapsulating_obj)
             except Exception:
                 pass
         return tracer
@@ -189,9 +194,14 @@ def _get_tool_id() -> int:
     raise RuntimeError("no available tool IDs for instrumentation")
 
 
-def _get_object(module, qualname: str) -> object:
+def _get_obj_and_encapsulating_obj(module: ModuleType, qualname: str) -> tuple[object, object | None]:
     parts = qualname.split(".")
+    encapsulating_obj = None
     obj = module
     for part in parts:
-        obj = getattr(obj, part)
-    return obj
+        encapsulating_obj, obj = obj, getattr(obj, part)
+    return obj, encapsulating_obj
+
+
+def _is_type(obj: object) -> TypeGuard[type]:
+    return hasattr(obj, "__bases__")

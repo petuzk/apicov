@@ -2,7 +2,7 @@ from typing import Optional, Union
 
 import pytest
 
-from apicov.type_annotation import get_annotation
+from apicov.type_annotation import SelfAnnotation, get_annotation
 
 
 @pytest.mark.parametrize(
@@ -29,3 +29,19 @@ def test_type_annotation_match(annotation, value, match_str):
     else:
         assert match is not None
         assert str(match) == match_str
+
+
+def test_self_annotation_match():
+    class Foo: ...
+
+    class Bar(Foo): ...
+
+    foo_annot = SelfAnnotation(Foo)
+    assert foo_annot.match(Foo())
+    assert foo_annot.match(Bar())
+    assert not foo_annot.match(42)
+
+    bar_annot = SelfAnnotation(Bar)
+    assert not bar_annot.match(Foo())
+    assert bar_annot.match(Bar())
+    assert not bar_annot.match(42)
