@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Any, Never, NoReturn, Optional, Union
 
 import pytest
 
@@ -15,10 +15,14 @@ from apicov.type_annotation import SelfAnnotation, get_annotation
         (int | str, "hello", "str"),
         (Union[int, str], 42, "int"),  # noqa: UP007 (intentional usage of Union to test support)
         (Union[int, str], 3.14, None),  # noqa: UP007 (intentional usage of Union to test support)
+        (type(None), None, "None"),
         (None, None, "None"),
         (None, 42, None),
         (Optional[int], None, "None"),  # noqa: UP045 (intentional usage of Optional to test support)
         (Optional[int], 42, "int"),  # noqa: UP045 (intentional usage of Optional to test support)
+        (Any, 42, "Any"),
+        (Never, 42, None),
+        (NoReturn, 42, None),
     ],
 )
 def test_type_annotation_match(annotation, value, match_str):

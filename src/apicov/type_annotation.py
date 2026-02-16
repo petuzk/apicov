@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Any
+from types import NoneType
+from typing import Any, Never, NoReturn
 
 from typing_inspect import get_args, is_union_type
 
@@ -61,8 +62,12 @@ class SelfAnnotation(TypeAnnotation):
 
 def get_annotation(annotation: Any) -> TypeAnnotation:
     """Parse a type annotation and return a TypeAnnotation object representing it."""
-    if annotation is None or annotation is type(None):
+    if annotation is None or annotation is NoneType:
         return NoneAnnotation()
+    if annotation is Any:
+        return AnyAnnotation()
+    if annotation is Never or annotation is NoReturn:
+        return NeverAnnotation()
     if is_union_type(annotation):
         return UnionAnnotation(*map(get_annotation, get_args(annotation)))
     try:
@@ -83,6 +88,32 @@ class NoneAnnotation(TypeAnnotation):
 
     def match(self, value: object) -> TypeMatch | None:
         return self._MATCH if value is None else None
+
+
+class AnyAnnotation(TypeAnnotation):
+    """Represents the `Any` type annotation. Matches all runtime values."""
+
+    class Match(TypeMatch):
+        def __str__(self) -> str:
+            return "Any"
+
+    _MATCH = Match()  # singleton match object since it has no data
+
+    def match(self, value: object) -> TypeMatch | None:
+        return self._MATCH  # matches everything
+
+
+class NeverAnnotation(TypeAnnotation):
+    """Represents the `Never` type annotation.
+
+    This annotation never matches any runtime values:
+      - when used as a parameter annotation, it makes any function call non-compliant
+        with regards to declared interface (which also impacts overload resolution)
+      - when used as a return annotation, it makes any return a violation of declared interface
+    """
+
+    def match(self, value: object) -> TypeMatch | None:
+        return None
 
 
 class InstanceAnnotation(TypeAnnotation):

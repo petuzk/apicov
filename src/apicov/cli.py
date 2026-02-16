@@ -76,7 +76,7 @@ def main() -> int:
             for matches, outcome, result in calls:
                 params_str = ", ".join(str(m) for m in matches)
                 if outcome == "return":
-                    print(f"  ({params_str}) -> {result or '[italic]unmatched[/]'}")
+                    print(f"  ({params_str}) -> {result or '[red italic]unmatched[/]'}")
                 else:
                     print(f"  ({params_str}) raised {result}")
         if func_info.unmatched_calls:
