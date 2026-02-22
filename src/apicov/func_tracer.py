@@ -1,10 +1,12 @@
 import inspect
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
+from functools import reduce
+from operator import mul
 from types import FrameType
 from typing import Any, Literal, Self, get_overloads
 
-from apicov.type_annotation import NoAnnotation, SelfAnnotation, TypeAnnotation, TypeMatch, get_annotation
+from apicov.type_annotation import NoAnnotation, SelfAnnotation, TypeAnnotation, TypeCoverage, TypeMatch, get_annotation
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,27 @@ class Overload:
                 return None  # if any parameter doesn't match, this overload doesn't match
             matches.append(match)
         return tuple(matches)
+
+    def analyze_coverage(self, matches: Iterable[tuple[tuple[TypeMatch, ...], TypeMatch]]) -> TypeCoverage:
+        """Analyze total coverage of this overload based on the matches it produced in runtime."""
+        # prepare tuples of TypeAnnotations, corresponding sets of TypeMatches,
+        # and flags indicating which of them are return annotations
+        annotations = (*self.param_annotations, self.return_annotation)
+        are_returns = (*([False] * len(self.param_annotations)), True)
+
+        flattened = ((*params, return_match) for params, return_match in matches)
+        match_sets = tuple(map(set, zip(*flattened)))
+        # if there are no matches, create empty sets for each annotation
+        if not match_sets:
+            match_sets = [set() for _ in annotations]
+
+        return reduce(
+            mul,
+            (
+                annotation.analyze_coverage(matches, is_ret)
+                for annotation, matches, is_ret in zip(annotations, match_sets, are_returns)
+            ),
+        )
 
 
 @dataclass(frozen=True, eq=False)
@@ -124,3 +147,12 @@ class FuncTracer:
         else:
             _, args_str = key
             self.unmatched_calls[(args_str, "unwind", repr(exception))] = None
+
+    def analyze_coverage(self) -> dict[Overload, TypeCoverage]:
+        """Analyze total coverage of each overload based on recorded runtime values."""
+        return {
+            overload: overload.analyze_coverage(
+                (matches, return_match) for (matches, return_match, _) in calls if return_match
+            )
+            for overload, calls in self.matched_calls.items()
+        }

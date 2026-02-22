@@ -69,8 +69,9 @@ def main() -> int:
     print(header)
     for fullname, func_info in tracer.traced_funcs.items():
         formatted_name = f"[bold]{fullname.module}[/].[blue bold]{fullname.qualname}[/]"
-        for overload, calls in func_info.matched_calls.items():
-            print(f"{formatted_name}[bold]{overload.signature}[/]:")
+        for overload, coverage in func_info.analyze_coverage().items():
+            print(f"{formatted_name}[bold]{overload.signature}[/]: {coverage.ratio * 100:.0f}%")
+            calls = func_info.matched_calls[overload]
             if not calls:
                 print("  [italic]no calls[/]")
             for param_matches, result_match, exception in calls:

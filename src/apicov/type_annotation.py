@@ -19,6 +19,52 @@ class TypeMatch:
     """
 
 
+@dataclass(frozen=True)
+class TypeCoverage:
+    """Represents the coverage of a type annotation, function signature or other measurable unit.
+
+    Type coverage is most meaningful with unions, and denotes which of its members were seen at runtime.
+    For example, given a type annotation `int | str`, an `int` runtime value covers 1/2 types (50%).
+    This approach can also be applied to a function signature, by treating it as a union of all
+    possible permutations of parameter and return types. For example, given a function with signature
+    `(int | str) -> str | None`, there are 4 possible permutations to be covered:
+    `(int) -> str`, `(int) -> None`, `(str) -> str` and `(str) -> None`.
+    """
+
+    hits: int
+    """Indicates how many permutations of types were actually seen at runtime."""
+
+    total: int
+    """Indicates how many permutations of types exist for this annotation.
+
+    For example, for `int | str` total is 2, and for `(int | str) -> str | None` total is 4.
+    The value of zero implies that there are no possible permutations, so it is considered 100% coverage.
+    """
+
+    @property
+    def ratio(self) -> float:
+        """Calculate the coverage ratio as hits divided by total, or 1.0 if total is zero."""
+        return self.hits / self.total if self.total > 0 else 1.0
+
+    def __mul__(self, other: "TypeCoverage") -> "TypeCoverage":
+        """Element-wise multiplication of coverage.
+
+        Useful for combining parameter/return value coverages into signature coverage.
+        """
+        if not isinstance(other, TypeCoverage):
+            return NotImplemented
+        return TypeCoverage(self.hits * other.hits, self.total * other.total)
+
+    def __add__(self, other: "TypeCoverage") -> "TypeCoverage":
+        """Element-wise addition of coverage.
+
+        Useful for combining coverage from multiple signatures.
+        """
+        if not isinstance(other, TypeCoverage):
+            return NotImplemented
+        return TypeCoverage(self.hits + other.hits, self.total + other.total)
+
+
 class TypeAnnotation:
     """Represents a type annotation in a function signature.
 
@@ -37,6 +83,11 @@ class TypeAnnotation:
         an unwind (an exception) should contribute to its coverage (e.g. Never).
         """
         return None  # by default, unwinds do not match any type annotation
+
+    def analyze_coverage(self, matches: set[TypeMatch], is_return: bool) -> TypeCoverage:
+        """Analyze the coverage of this type annotation based on the matches it produced."""
+        # by default, assume one possible type coverable by any match (i.e. 0/1 or 1/1)
+        return TypeCoverage(1 if matches else 0, 1)
 
 
 class NoAnnotation(TypeAnnotation):
@@ -138,6 +189,14 @@ class NeverAnnotation(TypeAnnotation):
     def match_unwind(self, exception: BaseException) -> TypeMatch | None:
         return self._MATCH
 
+    def analyze_coverage(self, matches: set[TypeMatch], is_return: bool) -> TypeCoverage:
+        # when used as a return value, coverage is 100% if there was an unwind
+        if is_return:
+            return TypeCoverage(1 if matches else 0, 1)
+        # when used as a parameter, it will not match anything,
+        # so coverage is 100% regardless of any other parameters
+        return TypeCoverage(0, 0)
+
 
 class InstanceAnnotation(TypeAnnotation):
     """Represents a simple type annotation like `int` or `str`."""
@@ -178,6 +237,9 @@ class UnionAnnotation(TypeAnnotation):
             if match is not None:
                 return self.Match(option, match)
         return None
+
+    def analyze_coverage(self, matches: set[TypeMatch], is_return: bool) -> TypeCoverage:
+        return TypeCoverage(len(matches), len(self.options))
 
 
 class UnknownAnnotation(TypeAnnotation):
