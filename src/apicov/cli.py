@@ -73,19 +73,19 @@ def main() -> int:
             print(f"{formatted_name}[bold]{overload.signature}[/]:")
             if not calls:
                 print("  [italic]no calls[/]")
-            for matches, outcome, result in calls:
-                params_str = ", ".join(str(m) for m in matches)
-                if outcome == "return":
-                    print(f"  ({params_str}) -> {result or '[red italic]unmatched[/]'}")
+            for param_matches, result_match, exception in calls:
+                args_str = ", ".join(str(m) for m in param_matches)
+                if not exception:
+                    print(f"  ({args_str}) -> {result_match or '[red italic]unmatched[/]'}")
                 else:
-                    print(f"  ({params_str}) raised {result}")
+                    print(f"  ({args_str}) raised {exception}")
         if func_info.unmatched_calls:
             print(f"{formatted_name} [italic]unmatched[/]:")
-            for args_str, outcome, result in func_info.unmatched_calls:
+            for args_str, outcome, result_str in func_info.unmatched_calls:
                 if outcome == "return":
-                    print(f"  ({args_str}) -> {result}")
+                    print(f"  ({args_str}) -> {result_str}")
                 else:
-                    print(f"  ({args_str}) raised {result}")
+                    print(f"  ({args_str}) raised {result_str}")
 
     return exit_code
 

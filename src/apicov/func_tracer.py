@@ -69,8 +69,9 @@ class FuncTracer:
         Overload,
         dict[
             # for each overload, store all calls that matched it
-            tuple[tuple[TypeMatch, ...], Literal["return"], TypeMatch | None]
-            | tuple[tuple[TypeMatch, ...], Literal["unwind"], str],  # store exception repr so that it's immutable
+            # as (matches for parameters, match for return/unwind, exception repr if unwind else None)
+            # use dict with None values for ordered set semantics, and potential storage for per-call metadata
+            tuple[tuple[TypeMatch, ...], TypeMatch | None, str | None],
             None,
         ],
     ]
@@ -91,6 +92,10 @@ class FuncTracer:
     type StartKey = tuple[Overload, tuple[TypeMatch, ...]] | tuple[None, str]
 
     def on_start(self, frame: FrameType) -> StartKey:
+        """Select an overload matching this call, and return a key with parameter matches.
+
+        If no overload matches, return a key with a string representation of the arguments.
+        """
         for overload in self.matched_calls.keys():
             matches = overload.match(frame)
             if matches is not None:
@@ -99,26 +104,23 @@ class FuncTracer:
         return None, ", ".join(f"{k}={v!r}" for k, v in frame.f_locals.items())
 
     def on_return(self, key: StartKey, retval: object) -> None:
-        # the implementation is way too explicit, but this allows mypy to check it exhaustively
-        exit_type: Literal["return"] = "return"
+        """Record a call started with `key` which returned the given return value."""
         if key[0] is not None:
             overload, matches = key
             return_match = overload.return_annotation.match(retval)
-            matched_key = (matches, exit_type, return_match)
+            matched_key = (matches, return_match, None)
             self.matched_calls[overload][matched_key] = None
         else:
             _, args_str = key
-            unmatched_key = (args_str, exit_type, repr(retval))
-            self.unmatched_calls[unmatched_key] = None
+            self.unmatched_calls[(args_str, "return", repr(retval))] = None
 
     def on_unwind(self, key: StartKey, exception: BaseException) -> None:
-        # the implementation is way too explicit, but this allows mypy to check it exhaustively
-        exit_type: Literal["unwind"] = "unwind"
+        """Record a call started with `key` which raised the given exception."""
         if key[0] is not None:
             overload, matches = key
-            matched_key = (matches, exit_type, repr(exception))
+            return_match = overload.return_annotation.match_unwind(exception)
+            matched_key = (matches, return_match, repr(exception))
             self.matched_calls[overload][matched_key] = None
         else:
             _, args_str = key
-            unmatched_key = (args_str, exit_type, repr(exception))
-            self.unmatched_calls[unmatched_key] = None
+            self.unmatched_calls[(args_str, "unwind", repr(exception))] = None

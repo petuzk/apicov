@@ -30,6 +30,14 @@ class TypeAnnotation:
         """Check if the given value matches this type annotation."""
         raise NotImplementedError
 
+    def match_unwind(self, exception: BaseException) -> TypeMatch | None:
+        """Check if an unwind event with the given exception matches this type annotation.
+
+        This is only relevant for special return annotations, where
+        an unwind (an exception) should contribute to its coverage (e.g. Never).
+        """
+        return None  # by default, unwinds do not match any type annotation
+
 
 class NoAnnotation(TypeAnnotation):
     """Special class to handle an absence of a type annotation in a generic way."""
@@ -42,6 +50,9 @@ class NoAnnotation(TypeAnnotation):
 
     def match(self, value: object) -> TypeMatch | None:
         return self._MATCH  # matches everything
+
+    def match_unwind(self, exception: BaseException) -> TypeMatch | None:
+        return self._MATCH  # consider unwinds to match no annotation as well
 
 
 class SelfAnnotation(TypeAnnotation):
@@ -110,10 +121,22 @@ class NeverAnnotation(TypeAnnotation):
       - when used as a parameter annotation, it makes any function call non-compliant
         with regards to declared interface (which also impacts overload resolution)
       - when used as a return annotation, it makes any return a violation of declared interface
+
+    However, unwinding due to an exception is considered a match for Never,
+    since the function does not return in this case.
     """
+
+    class Match(TypeMatch):
+        def __str__(self) -> str:
+            return "Never"
+
+    _MATCH = Match()  # singleton match object since it has no data
 
     def match(self, value: object) -> TypeMatch | None:
         return None
+
+    def match_unwind(self, exception: BaseException) -> TypeMatch | None:
+        return self._MATCH
 
 
 class InstanceAnnotation(TypeAnnotation):
