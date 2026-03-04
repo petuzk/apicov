@@ -6,7 +6,7 @@ This tracer uses the new `sys.monitoring` API to track function calls and their 
 import sys
 from collections.abc import Callable
 from types import CodeType, FrameType, ModuleType
-from typing import Any, NamedTuple, Protocol, Self, TypeGuard
+from typing import Any, Protocol, Self, TypeGuard
 
 # convenience alias for sys.monitoring, to avoid long names
 _sm = sys.monitoring
@@ -65,18 +65,11 @@ class GetFuncTracerFn[FT: FuncTracer](Protocol):
         """
 
 
-class Fullname(NamedTuple):
-    module: str
-    qualname: str
-
-
 class Tracer[FT: FuncTracer]:
     def __init__(self, should_trace: ShouldTraceFn, get_func_tracer: GetFuncTracerFn[FT]) -> None:
         self._should_trace = should_trace
         self._get_func_tracer = get_func_tracer
-        self.traced_funcs: dict[Fullname, FT] = {}
-        # _known_codes stores same FuncTracer instances as traced_funcs,
-        # or None if the code is not traceable
+        # _known_codes stores FuncTracer instances or None if the code is not traceable
         self._known_codes: dict[CodeType, FT | None] = {}
 
     def __enter__(self) -> Self:
@@ -117,10 +110,7 @@ class Tracer[FT: FuncTracer]:
                 # not sure why this may happen, but just don't trace it
                 tracer = None
             else:
-                fullname = Fullname(module_name, code.co_qualname)
-                tracer = self._new_func_tracer(fullname)
-                if tracer is not None:
-                    self.traced_funcs[fullname] = tracer
+                tracer = self._new_func_tracer(module_name, code.co_qualname)
             self._known_codes[code] = tracer
 
         # if this function is traceable (code maps to a FuncTracer), call its on_start callback
@@ -133,25 +123,21 @@ class Tracer[FT: FuncTracer]:
 
         self._call_stack.append((code, tracer, key))
 
-    def _new_func_tracer(self, fullname: Fullname) -> FT | None:
-        # this is very unlikely, but may theoretically happen if a function is somehow freed
-        # and then recompiled -- we still want to trace it into the same FuncTracer
-        tracer = self.traced_funcs.get(fullname)
-        if tracer is None:
-            # try to create a tracer for this code object
-            # this may raise different exceptions because `code` may be
-            # a module, a class body or other non-function code object
-            # in that case we just don't trace it
-            try:
-                module = sys.modules[fullname.module]
-                obj, encapsulating_obj = _get_obj_and_encapsulating_obj(module, fullname.qualname)
-                if encapsulating_obj is not None and not _is_type(encapsulating_obj):
-                    encapsulating_obj = None
-                if callable(obj):
-                    tracer = self._get_func_tracer(obj, encapsulating_obj)
-            except Exception:
-                pass
-        return tracer
+    def _new_func_tracer(self, module_name: str, qualname: str) -> FT | None:
+        # try to create a tracer for this code object
+        # this may raise different exceptions because `code` may be
+        # a module, a class body or other non-function code object
+        # in that case we just don't trace it
+        try:
+            module = sys.modules[module_name]
+            obj, encapsulating_obj = _get_obj_and_encapsulating_obj(module, qualname)
+            if encapsulating_obj is not None and not _is_type(encapsulating_obj):
+                encapsulating_obj = None
+            if callable(obj):
+                return self._get_func_tracer(obj, encapsulating_obj)
+        except Exception:
+            pass
+        return None
 
     def _return_callback(self, code: CodeType, instruction_offset: int, retval: object) -> None:
         try:

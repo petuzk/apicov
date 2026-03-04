@@ -88,6 +88,7 @@ class Overload:
 class FuncTracer:
     """Tracer for a single function, matching its calls against its overloads and recording the matches."""
 
+    original_func: Callable[..., Any]
     matched_calls: Mapping[
         Overload,
         dict[
@@ -108,6 +109,7 @@ class FuncTracer:
     def from_callable(cls, func: Callable[..., Any], encapsulating_class: type | None) -> Self:
         overloads = [Overload.from_callable(f, encapsulating_class) for f in get_overloads(func) or [func]]
         return cls(
+            func,
             {overload: {} for overload in overloads},
             {},
         )

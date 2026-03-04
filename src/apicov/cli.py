@@ -2,8 +2,10 @@ import argparse
 import runpy
 import sys
 import traceback
+from collections.abc import Callable
 from contextlib import contextmanager
-from functools import lru_cache
+from functools import lru_cache, partial
+from typing import Any
 
 from rich import print
 
@@ -39,6 +41,14 @@ def should_trace(filename: str) -> bool:
     return True
 
 
+def create_and_store_tracer(
+    storage: list[FuncTracer], func: Callable[..., Any], encapsulating_class: type | None
+) -> FuncTracer:
+    tracer = FuncTracer.from_callable(func, encapsulating_class)
+    storage.append(tracer)
+    return tracer
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="API Coverage tool")
     parser.add_argument("script", nargs="?", default=None, help="Path to the script to execute")
@@ -51,7 +61,8 @@ def main() -> int:
         parser.print_help()
         return 1
 
-    tracer = Tracer(should_trace, FuncTracer.from_callable)
+    func_tracers: list[FuncTracer] = []  # store FuncTracers created by the tracer, to analyze them after execution
+    tracer = Tracer(should_trace, partial(create_and_store_tracer, func_tracers))
     exit_code = 0
     try:
         with instrument_runpy(tracer):
@@ -64,11 +75,12 @@ def main() -> int:
         traceback.print_exc()
         exit_code = 1
 
-    header = f"Captured {len(tracer.traced_funcs)} called functions in {args.script or args.module}:"
+    header = f"Captured {len(func_tracers)} called functions in {args.script or args.module}:"
     print("=" * len(header))
     print(header)
-    for fullname, func_info in tracer.traced_funcs.items():
-        formatted_name = f"[bold]{fullname.module}[/].[blue bold]{fullname.qualname}[/]"
+    for func_info in func_tracers:
+        func = func_info.original_func
+        formatted_name = f"[bold]{func.__module__}[/].[blue bold]{func.__qualname__}[/]"
         for overload, coverage in func_info.analyze_coverage().items():
             print(f"{formatted_name}[bold]{overload.signature}[/]: {coverage.ratio * 100:.0f}%")
             calls = func_info.matched_calls[overload]
