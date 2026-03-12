@@ -82,7 +82,7 @@ def main() -> int:
         func = func_info.original_func
         formatted_name = f"[bold]{func.__module__}[/].[blue bold]{func.__qualname__}[/]"
         for overload, coverage in func_info.analyze_coverage().items():
-            print(f"{formatted_name}[bold]{overload.signature}[/]: {coverage.ratio * 100:.0f}%")
+            print(f"{formatted_name}[bold]{overload.signature}[/]: {coverage.total().ratio * 100:.0f}%")
             calls = func_info.matched_calls[overload]
             if not calls:
                 print("  [italic]no calls[/]")
