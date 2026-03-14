@@ -19,7 +19,7 @@ class TypeMatch:
     """
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class TypeCoverage:
     """Represents the coverage of a type annotation, function signature or other measurable unit.
 
@@ -93,6 +93,9 @@ class TypeAnnotation:
 class NoAnnotation(TypeAnnotation):
     """Special class to handle an absence of a type annotation in a generic way."""
 
+    def __str__(self) -> str:
+        return "?"
+
     class Match(TypeMatch):
         def __str__(self) -> str:
             return "?"
@@ -111,6 +114,9 @@ class SelfAnnotation(TypeAnnotation):
 
     def __init__(self, bound_class: type) -> None:
         self.bound_class = bound_class
+
+    def __str__(self) -> str:
+        return "Self"
 
     class Match(TypeMatch):
         def __str__(self) -> str:
@@ -142,6 +148,9 @@ def get_annotation(annotation: Any) -> TypeAnnotation:
 class NoneAnnotation(TypeAnnotation):
     """Represents the `None` type annotation."""
 
+    def __str__(self) -> str:
+        return "None"
+
     class Match(TypeMatch):
         def __str__(self) -> str:
             return "None"
@@ -154,6 +163,9 @@ class NoneAnnotation(TypeAnnotation):
 
 class AnyAnnotation(TypeAnnotation):
     """Represents the `Any` type annotation. Matches all runtime values."""
+
+    def __str__(self) -> str:
+        return "Any"
 
     class Match(TypeMatch):
         def __str__(self) -> str:
@@ -176,6 +188,9 @@ class NeverAnnotation(TypeAnnotation):
     However, unwinding due to an exception is considered a match for Never,
     since the function does not return in this case.
     """
+
+    def __str__(self) -> str:
+        return "Never"
 
     class Match(TypeMatch):
         def __str__(self) -> str:
@@ -203,6 +218,9 @@ class InstanceAnnotation(TypeAnnotation):
 
     def __init__(self, typ: type):
         self.typ = typ
+
+    def __str__(self) -> str:
+        return self.typ.__name__
 
     @dataclass(frozen=True, slots=True)
     class Match(TypeMatch):
@@ -238,8 +256,12 @@ class UnionAnnotation(TypeAnnotation):
                 return self.Match(option, match)
         return None
 
+    @dataclass(frozen=True, slots=True)
+    class UnionCoverage(TypeCoverage):
+        covered_annotations: set[TypeAnnotation]
+
     def analyze_coverage(self, matches: set[TypeMatch], is_return: bool) -> TypeCoverage:
-        return TypeCoverage(len(matches), len(self.options))
+        return self.UnionCoverage(len(matches), len(self.options), {match.option for match in matches})
 
 
 class UnknownAnnotation(TypeAnnotation):
@@ -247,6 +269,9 @@ class UnknownAnnotation(TypeAnnotation):
 
     def __init__(self, label: str):
         self.label = label
+
+    def __str__(self) -> str:
+        return self.label
 
     class Match(TypeMatch):
         def __str__(self) -> str:
