@@ -13,6 +13,7 @@ from apicov.type_annotation import NoAnnotation, SelfAnnotation, TypeAnnotation,
 class Overload:
     """Represents a single overload of a function, i.e. a specific combination of parameter and return types."""
 
+    original_func: Callable[..., Any]
     signature: inspect.Signature
     param_annotations: tuple[TypeAnnotation, ...]  # type annotations for each parameter
     return_annotation: TypeAnnotation  # type annotation for the return value
@@ -21,6 +22,7 @@ class Overload:
     def from_callable(cls, func: Callable[..., Any], encapsulating_class: type | None) -> Self:
         signature = inspect.signature(func)
         return cls(
+            func,
             signature,
             tuple(
                 cls._get_param_annotation(i, param, encapsulating_class)
