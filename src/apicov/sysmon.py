@@ -186,6 +186,8 @@ def _get_obj_and_encapsulating_obj(module: ModuleType, qualname: str) -> tuple[o
     obj = module
     for part in parts:
         encapsulating_obj, obj = obj, getattr(obj, part)
+    while hasattr(obj, "__wrapped__"):  # unwrap decorated functions to get to the original one
+        obj = obj.__wrapped__
     return obj, encapsulating_obj
 
 
