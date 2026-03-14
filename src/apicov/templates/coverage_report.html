@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Coverage Report</title>
+    <link href="https://fonts.googleapis.com/css2?family=Sometype+Mono:ital,wght@0,700;1,700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f7fa;
+            min-height: 100vh;
+            padding: 0;
+        }
+
+        .main-content {
+            display: flex;
+            height: 100vh;
+            margin: 0;
+            gap: 0;
+            border-radius: 0;
+            overflow: hidden;
+            box-shadow: none;
+        }
+
+        .sidebar {
+            width: 320px;
+            background: white;
+            overflow-y: auto;
+            position: relative;
+            flex-shrink: 0;
+        }
+
+        .resize-handle {
+            width: 4px;
+            background: #e0e0e0;
+            cursor: col-resize;
+            flex-shrink: 0;
+            transition: background 0.2s;
+        }
+
+        .resize-handle:hover {
+            background: #667eea;
+        }
+
+        .file-list {
+            padding: 0;
+        }
+
+        .file-item {
+            padding: 12px 16px;
+            cursor: pointer;
+            border-bottom: 1px solid #f0f0f0;
+            transition: background 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .file-item:hover {
+            background: #f8f9fa;
+        }
+
+        .file-item.active {
+            background: #f0f1f5;
+            border-left: 4px solid #667eea;
+            padding-left: 12px;
+        }
+
+        .file-name {
+            font-weight: 500;
+            color: #333;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-item-coverage {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .file-coverage-bar {
+            width: 60px;
+            height: 4px;
+            background: #e0e0e0;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .file-content {
+            flex: 1;
+            background: white;
+            border-radius: 0;
+            overflow-y: auto;
+            border: none;
+            display: none;
+            flex-direction: column;
+        }
+
+        .file-content.active {
+            display: flex;
+        }
+
+        .file-header {
+            padding: 20px;
+            padding-right: 16px;
+            border-bottom: 1px solid #f0f0f0;
+            border-radius: 8px 8px 0 0;
+            background: #f8f9fa;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .file-header h2 {
+            font-size: 1.4em;
+            color: #333;
+            margin: 0;
+        }
+
+        .file-statistics {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .stat-mini {
+            text-align: right;
+            font-size: 0.85em;
+        }
+
+        .stat-mini .number {
+            font-weight: 600;
+            color: #667eea;
+            font-size: 1.2em;
+        }
+
+        .stat-mini .label {
+            color: #999;
+            font-size: 0.85em;
+        }
+
+        .item {
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .item.class {
+            border-left-color: #764ba2;
+        }
+
+        .item.function {
+            border-left-color: #667eea;
+            background: #fdfdfd;
+        }
+
+        .item-header {
+            padding: 12px 16px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            transition: background 0.2s;
+            gap: 10px;
+            flex-wrap: wrap;
+            background: #f8f9fa;
+        }
+
+        .item-header:hover {
+            background: #f0f1f5;
+        }
+
+        .item-left {
+            flex: 1;
+            min-width: 300px;
+            overflow: hidden;
+        }
+
+        .toggle-icon {
+            display: inline-block;
+            margin-right: 6px;
+            transition: transform 0.2s;
+            font-weight: bold;
+            flex-shrink: 0;
+            font-size: 0.85em;
+        }
+
+        .toggle-icon.class {
+            color: #764ba2;
+        }
+
+        .toggle-icon.function {
+            color: #667eea;
+        }
+
+        .item-header.collapsed .toggle-icon {
+            transform: rotate(-90deg);
+        }
+
+        .signature-display {
+            font-family: 'Sometype Mono', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 1em;
+            color: #333;
+            display: inline;
+            padding: 0;
+            margin: 0;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            line-height: 1.5;
+        }
+
+        .keyword {
+            color: #764ba2;
+            font-weight: 600;
+        }
+
+        .function-name {
+            color: #333;
+            font-weight: 600;
+        }
+
+        .decorator-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 6px;
+            font-size: 0.7em;
+            font-weight: 600;
+            margin: 0 4px;
+            background: #e3f2fd;
+            color: #1976d2;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+
+        .param-name {
+            color: #0066cc;
+            font-weight: 500;
+        }
+
+        .param-type {
+            color: #555;
+        }
+
+        .union-member {
+            margin: 0 2px;
+            display: inline;
+            padding: 0 2px;
+            border-radius: 2px;
+            font-weight: 500;
+        }
+
+        .union-member.covered {
+            background: rgba(40, 167, 69, 0.25);
+            color: #155724;
+        }
+
+        .union-member.uncovered {
+            background: rgba(220, 53, 69, 0.25);
+            color: #721c24;
+        }
+
+        .return-arrow {
+            color: #667eea;
+            margin: 0 4px;
+            font-weight: 600;
+        }
+
+        .return-type {
+            color: #555;
+        }
+
+        .coverage-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+
+        .line-number {
+            color: #999;
+            font-size: 0.85em;
+        }
+
+        .coverage-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .coverage-bar {
+            width: 80px;
+            height: 5px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .coverage-fill {
+            height: 100%;
+        }
+
+        .coverage-fill.low {
+            background: linear-gradient(90deg, #ff6b6b 0%, #ee5a6f 100%);
+        }
+
+        .coverage-fill.medium {
+            background: linear-gradient(90deg, #ffa502 0%, #ffb627 100%);
+        }
+
+        .coverage-fill.high {
+            background: linear-gradient(90deg, #26de81 0%, #20c997 100%);
+        }
+
+        .coverage-text {
+            font-weight: 600;
+            font-size: 0.8em;
+            color: #666;
+            min-width: 32px;
+            text-align: right;
+        }
+
+        .item-details {
+            max-height: 2000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease, opacity 0.2s linear;
+            opacity: 1;
+        }
+
+        .item-details.collapsed {
+            max-height: 0;
+            opacity: 0;
+        }
+
+        .detail-content {
+            padding-left: 16px;
+            padding-top: 16px;
+            padding-bottom: 16px;
+            border-top: 1px solid #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .runtime-calls {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .runtime-calls-title {
+            font-weight: 600;
+            color: #333;
+            font-size: 0.9em;
+            align-items: center;
+        }
+
+        .call-item {
+            background: #f8f9fa;
+            padding: 8px 10px;
+            border-radius: 4px;
+            border-left: 3px solid #667eea;
+            font-family: 'Sometype Mono', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.9em;
+            color: #333;
+            overflow-x: auto;
+            word-break: break-word;
+            width: fit-content;
+        }
+
+        .call-item.matched {
+            border-left-color: #26de81;
+            background: #f0fdf4;
+        }
+
+        .call-item.unmatched_ret {
+            border-left-color: #ffee6b;
+            background: #fffce8;
+        }
+
+        .call-item.unmatched_sig {
+            border-left-color: #ff6b6b;
+            background: #fff5f5;
+        }
+
+        .call-result {
+            margin-top: 4px;
+            color: #999;
+            font-size: 0.8em;
+        }
+
+        .no-details {
+            color: #999;
+            font-style: italic;
+            font-size: 0.9em;
+        }
+
+        .no-files {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #999;
+            font-size: 1.1em;
+        }
+
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #ddd;
+            text-align: center;
+            padding: 40px;
+        }
+    </style>
+</head>
+<body>
+    {% macro render_coverage_indicator(coverage) -%}
+        <div class="coverage-indicator">
+            <div class="coverage-bar">
+            <div
+                class="coverage-fill {% if coverage.ratio == 1.0 %}high{% elif coverage.ratio > 0 %}medium{% else %}low{% endif %}"
+                style="width: {{ coverage.ratio * 100 }}%"></div>
+            </div>
+            <span class="coverage-text">{{ coverage.hits }}/{{ coverage.total }}</span>
+        </div>
+    {%- endmacro %}
+
+    {% macro render_type_hint(type_obj) -%}
+        <span class="union-member {% if type_obj.covered %}covered{% else %}uncovered{% endif %}">{{ type_obj.name }}</span>
+        {%- if type_obj.args -%}
+            {#- Render arguments of a generic type -#}
+            <span>[</span>{% for arg in type_obj.args %}{% if not loop.first %}<span>, </span>{% endif %}{{ render_type_hint(arg) }}{% endfor %}<span>]</span>
+        {%- endif -%}
+    {%- endmacro %}
+
+    {%- macro render_type_hint_list(type_list) -%}
+        {%- for type_obj in type_list -%}
+            {%- if not loop.first -%}<span> | </span>{%- endif -%}{{ render_type_hint(type_obj) }}
+        {%- endfor -%}
+    {%- endmacro -%}
+
+    {% macro render_signature(signature) -%}
+        <span style="color: #666;">(<wbr>
+            {%- for param_name in signature.params -%}
+                {%- if not loop.first -%}
+                    <span>,</span><wbr>
+                {% endif %}
+
+                {#- This comment removes space before span -#}
+                <span class="param-name">{{ param_name }}</span>
+
+                {%- if signature.params[param_name] -%}
+                    <span>:</span>
+                    <span class="param-type">{{ render_type_hint_list(signature.params[param_name]) }}</span>
+                {%- endif -%}
+            {%- endfor -%}
+        <wbr>)</span>
+        {% if signature.ret %}
+            <span class="return-arrow">-></span>
+            <span class="return-type">{{ render_type_hint_list(signature.ret) }}</span>
+        {% endif %}
+    {%- endmacro %}
+
+    {% macro render_call_signature(signature) -%}
+    <span style="color: #666;">(<wbr>
+            {%- if signature.parameters -%}
+                {%- for arg in signature.parameters -%}
+                    {%- if not loop.first -%}
+                        <span>,</span><wbr>
+                    {% endif %}
+
+                    {#- This comment removes space before span -#}
+                    <span class="param-type">{{ arg }}</span>
+                {%- endfor -%}
+            {%- elif signature.args -%}
+                {{ signature.args }}
+            {%- endif -%}
+        <wbr>)</span>
+        {% if signature.return_type %}
+            <span class="return-arrow">-></span>
+            <span class="return-type">{{ signature.return_type }}</span>
+        {% endif %}
+        {% if signature.result %}
+            <div class="call-result">{{ signature.result }}</div>
+        {% endif %}
+    {%- endmacro %}
+
+    <div class="main-content">
+        {% if files %}
+        <aside class="sidebar" id="sidebar">
+            <div class="file-list">
+                {% for file in files %}
+                <div class="file-item" onclick="selectFile(this, {{ loop.index0 }})">
+                    <span class="file-name">{{ file.name }}</span>
+                    <div class="file-item-coverage">
+                        <div class="file-coverage-bar">
+                            <div class="coverage-fill {% if file.coverage.ratio == 1.0 %}high{% elif file.coverage.ratio > 0 %}medium{% else %}low{% endif %}" style="width: {{ file.coverage.ratio * 100 }}%"></div>
+                        </div>
+                        <span class="coverage-text" style="font-size: 0.75em; min-width: 24px;">{{ "%.0f"|format(file.coverage.ratio * 100) }}%</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </aside>
+
+        <div class="resize-handle" id="resizeHandle"></div>
+
+        {% for file in files %}
+        <section class="file-content" id="file-{{ loop.index0 }}">
+            <div class="file-header">
+                <div>
+                    <h2>{{ file.name }}</h2>
+                </div>
+                <div class="file-statistics">
+                    <div class="stat-mini">
+                        <div class="number">{{ "%.1f"|format(file.coverage.ratio * 100) }}%</div>
+                        <div class="label">Coverage</div>
+                    </div>
+                    <div class="coverage-indicator">
+                        <div class="coverage-bar">
+                            <div class="coverage-fill {% if file.coverage.ratio == 1.0 %}high{% elif file.coverage.ratio > 0 %}medium{% else %}low{% endif %}" style="width: {{ file.coverage.ratio * 100 }}%"></div>
+                        </div>
+                        <span class="coverage-text">{{ file.coverage.hits }}/{{ file.coverage.total }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="detail-content">
+                {% for item in file.members recursive %}
+                <div class="item {{ item.kind }}" data-coverage="{{ '%.2f'|format(item.coverage.ratio if item.coverage else 0) }}" data-name="{{ item.name | lower }}">
+                    <div class="item-header" onclick="toggleDetails(this)">
+                        <div class="item-left">
+                            <span class="toggle-icon {{ item.kind }}">▼</span>
+                            <div class="signature-display">
+                                <span class="keyword">{% if item.kind == 'class' %}class{% else %}def{% endif %}</span>
+                                <span class="function-name">{{ item.name }}</span>
+                                {% if item.decorators %}
+                                    {% for decorator in item.decorators %}<span class="decorator-badge {{ decorator | lower }}">{{ decorator }}</span>{% endfor %}
+                                {% endif %}
+                                {% if item.kind == 'function' %}
+                                    {% if item.signature %}
+                                        {{ render_signature(item.signature) }}
+                                    {% else %}
+                                        <span style="color: #666;">(...)</span>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="coverage-section">
+                            {% if item.lineno %}
+                                <span class="line-number">L{{ item.lineno }}</span>
+                            {% endif %}
+                            {% if item.coverage %}
+                                {{ render_coverage_indicator(item.coverage) }}
+                            {% endif %}
+                        </div>
+                    </div>
+
+                    <div class="item-details">
+                        <div class="detail-content">
+                            {% if item.kind == 'class' %}
+                                {% if item.members %}
+                                    {{ loop(item.members) }}
+                                {% else %}
+                                    <div class="no-details">This class has no members.</div>
+                                {% endif %}
+                            {% else %}
+                                {% if item.call_details %}
+                                    <!-- {{ item.call_details }} -->
+                                    {% for title, class, calls in [
+                                        ("⚡️ Matched runtime calls", "matched", item.call_details.matched),
+                                        ("⚠️ Unmatched return value", "unmatched_ret", item.call_details.unmatched_ret),
+                                        ("💥 Exceptions", "unmatched_ret", item.call_details.exceptions),
+                                        ("❗️ Signature mismatch", "unmatched_sig", item.call_details.unmatched_calls),
+                                    ] %}
+                                    {% if calls %}
+                                        <div class="runtime-calls">
+                                            <div class="runtime-calls-title">{{ title }} ({{ calls | length }})</div>
+                                            {% for call in calls %}
+                                                <div class="call-item {{ class }}">
+                                                    {{ render_call_signature(call) }}
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    <div class="no-details">No calls were traced for this function.</div>
+                                {% endif %}
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        {% endfor %}
+        {% else %}
+        <div class="empty-state" style="width: 100%;">
+            <p>No coverage data available</p>
+            <p style="font-size: 0.9em; margin-top: 10px;">Run your tests with tracing enabled to generate coverage data.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // Sidebar resizing
+        const sidebar = document.getElementById('sidebar');
+        const resizeHandle = document.getElementById('resizeHandle');
+        let isResizing = false;
+
+        if (resizeHandle) {
+            resizeHandle.addEventListener('mousedown', (e) => {
+                isResizing = true;
+                document.addEventListener('mousemove', resize);
+                document.addEventListener('mouseup', stopResize);
+                e.preventDefault();
+            });
+        }
+
+        function resize(e) {
+            if (!isResizing) return;
+            const newWidth = e.clientX;
+            if (newWidth > 150 && newWidth < 600) {
+                sidebar.style.width = newWidth + 'px';
+                localStorage.setItem('sidebarWidth', newWidth);
+            }
+        }
+
+        function stopResize() {
+            isResizing = false;
+            document.removeEventListener('mousemove', resize);
+            document.removeEventListener('mouseup', stopResize);
+        }
+
+        // File selection
+        function selectFile(element, index) {
+            // Update sidebar
+            document.querySelectorAll('.file-item').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+
+            // Update main content
+            document.querySelectorAll('.file-content').forEach(el => el.classList.remove('active'));
+            document.getElementById('file-' + index).classList.add('active');
+        }
+
+        // Toggle item details
+        function toggleDetails(headerElement) {
+            const detailsElement = headerElement.nextElementSibling;
+            headerElement.classList.toggle('collapsed');
+            detailsElement.classList.toggle('collapsed');
+        }
+
+        // Select first file by default and apply saved sidebar width
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedWidth = localStorage.getItem('sidebarWidth');
+            if (savedWidth && sidebar) {
+                sidebar.style.width = savedWidth + 'px';
+            }
+
+            const firstFile = document.querySelector('.file-item');
+            if (firstFile) {
+                firstFile.click();
+            }
+
+            // Collapse items with full coverage by default (except classes)
+            document.querySelectorAll('.item').forEach(item => {
+                if (item.classList.contains('class')) return;
+                const coverage = parseFloat(item.getAttribute('data-coverage'));
+                if (coverage == 1.0) {
+                    const header = item.querySelector('.item-header');
+                    header?.click();
+                }
+            });
+        });
+    </script>
+</body>
+</html>

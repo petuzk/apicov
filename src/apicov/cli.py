@@ -10,6 +10,7 @@ from typing import Any
 from rich import print
 
 from apicov.func_tracer import FuncTracer
+from apicov.html import generate_html_report
 from apicov.sysmon import Tracer
 
 
@@ -53,6 +54,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="API Coverage tool")
     parser.add_argument("script", nargs="?", default=None, help="Path to the script to execute")
     parser.add_argument("-m", dest="module", help="Run given module as a script")
+    parser.add_argument("--html", action="store_true", help="Generate HTML report")
     args = parser.parse_args()
 
     if args.script and args.module:
@@ -74,6 +76,13 @@ def main() -> int:
         # print traceback, but continue execution to also print the report
         traceback.print_exc()
         exit_code = 1
+
+    if args.html:
+        with open("report.html", "w") as file:
+            for chunk in generate_html_report(func_tracers):
+                file.write(chunk)
+        print("✓ Coverage report generated: report.html")
+        return 0
 
     header = f"Captured {len(func_tracers)} called functions in {args.script or args.module}:"
     print("=" * len(header))
