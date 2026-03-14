@@ -12,7 +12,7 @@ from apicov.type_annotation import NoAnnotation, TypeAnnotation, TypeCoverage, T
 
 def generate_html_report(tracers: Iterable[FuncTracer]) -> Iterable[str]:
     """Generate HTML report presenting the data captured by provided tracers."""
-    env = Environment(loader=PackageLoader("apicov"))
+    env = Environment(loader=PackageLoader("apicov"), autoescape=True)
     template = env.get_template("coverage_report.html")
 
     render_data = get_render_data(tracers)
