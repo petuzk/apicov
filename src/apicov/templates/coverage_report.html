@@ -532,7 +532,6 @@
                             {% endif %}
                         {% else %}
                             {% if item.call_details %}
-                                <!-- {{ item.call_details }} -->
                                 {% for title, class, calls in [
                                     ("⚡️ Matched runtime calls", "matched", item.call_details.matched),
                                     ("⚠️ Unmatched return value", "unmatched_ret", item.call_details.unmatched_ret),
