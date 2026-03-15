@@ -94,19 +94,17 @@ class NoAnnotation(TypeAnnotation):
     """Special class to handle an absence of a type annotation in a generic way."""
 
     def __str__(self) -> str:
-        return "?"
+        return "<no annotation>"
 
+    @dataclass(frozen=True, slots=True)
     class Match(TypeMatch):
-        def __str__(self) -> str:
-            return "?"
+        label: str
 
-    _MATCH = Match()  # singleton match object since it has no data
+        def __str__(self) -> str:
+            return self.label
 
     def match(self, value: object) -> TypeMatch | None:
-        return self._MATCH  # matches everything
-
-    def match_unwind(self, exception: BaseException) -> TypeMatch | None:
-        return self._MATCH  # consider unwinds to match no annotation as well
+        return self.Match("None" if value is None else type(value).__qualname__)  # matches everything
 
 
 class SelfAnnotation(TypeAnnotation):
