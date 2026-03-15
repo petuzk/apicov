@@ -3,10 +3,13 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from functools import reduce
 from operator import mul
+from reprlib import Repr
 from types import FrameType
 from typing import Any, Literal, Self, get_overloads
 
 from apicov.type_annotation import NoAnnotation, SelfAnnotation, TypeAnnotation, TypeCoverage, TypeMatch, get_annotation
+
+_repr = Repr(maxlong=20, maxstring=50, maxother=50).repr
 
 
 @dataclass(frozen=True)
@@ -137,7 +140,7 @@ class FuncTracer:
             if matches is not None:
                 return overload, matches
         # if no overload matches, return the actual argument values for reporting
-        return None, ", ".join(f"{k}={v!r}" for k, v in frame.f_locals.items())
+        return None, ", ".join(f"{k}={_repr(v)}" for k, v in frame.f_locals.items())
 
     def on_return(self, key: StartKey, retval: object) -> None:
         """Record a call started with `key` which returned the given return value."""
@@ -148,18 +151,18 @@ class FuncTracer:
             self.matched_calls[overload][matched_key] = None
         else:
             _, args_str = key
-            self.unmatched_calls[(args_str, "return", repr(retval))] = None
+            self.unmatched_calls[(args_str, "return", _repr(retval))] = None
 
     def on_unwind(self, key: StartKey, exception: BaseException) -> None:
         """Record a call started with `key` which raised the given exception."""
         if key[0] is not None:
             overload, matches = key
             return_match = overload.return_annotation.match_unwind(exception)
-            matched_key = (matches, return_match, repr(exception))
+            matched_key = (matches, return_match, _repr(exception))
             self.matched_calls[overload][matched_key] = None
         else:
             _, args_str = key
-            self.unmatched_calls[(args_str, "unwind", repr(exception))] = None
+            self.unmatched_calls[(args_str, "unwind", _repr(exception))] = None
 
     def analyze_coverage(self) -> dict[Overload, OverloadCoverage]:
         """Analyze coverage of each overload based on recorded runtime values."""
