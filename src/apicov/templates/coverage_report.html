@@ -17,15 +17,11 @@
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: #f5f7fa;
             min-height: 100vh;
-            padding: 0;
         }
 
         .main-content {
             display: flex;
             height: 100vh;
-            margin: 0;
-            gap: 0;
-            border-radius: 0;
             overflow: hidden;
             box-shadow: none;
         }
@@ -48,10 +44,6 @@
 
         .resize-handle:hover {
             background: #667eea;
-        }
-
-        .file-list {
-            padding: 0;
         }
 
         .file-item {
@@ -102,7 +94,6 @@
         .file-content {
             flex: 1;
             background: white;
-            border-radius: 0;
             overflow-y: auto;
             border: none;
             display: none;
@@ -152,40 +143,24 @@
             font-size: 0.85em;
         }
 
-        .item {
-            border-left: 4px solid #667eea;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .item.class {
-            border-left-color: #764ba2;
-        }
-
-        .item.function {
-            border-left-color: #667eea;
-            background: #fdfdfd;
-        }
-
         .item-header {
             padding: 12px 16px;
             cursor: pointer;
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
+            align-items: center;
             transition: background 0.2s;
             gap: 10px;
             flex-wrap: wrap;
-            background: #f8f9fa;
+            border-bottom: 1px solid #f0f0f0;
         }
 
         .item-header:hover {
-            background: #f0f1f5;
+            background: #f8f9fa;
         }
 
         .item-left {
             flex: 1;
-            min-width: 300px;
             overflow: hidden;
         }
 
@@ -196,14 +171,7 @@
             font-weight: bold;
             flex-shrink: 0;
             font-size: 0.85em;
-        }
-
-        .toggle-icon.class {
             color: #764ba2;
-        }
-
-        .toggle-icon.function {
-            color: #667eea;
         }
 
         .item-header.collapsed .toggle-icon {
@@ -230,18 +198,6 @@
         .function-name {
             color: #333;
             font-weight: 600;
-        }
-
-        .decorator-badge {
-            display: inline-block;
-            padding: 2px 6px;
-            border-radius: 6px;
-            font-size: 0.7em;
-            font-weight: 600;
-            margin: 0 4px;
-            background: #e3f2fd;
-            color: #1976d2;
-            font-family: system-ui, -apple-system, sans-serif;
         }
 
         .param-name {
@@ -334,23 +290,20 @@
 
         .item-details {
             overflow: hidden;
-            transition: max-height 0.3s ease, opacity 0.2s linear;
-            opacity: 1;
+            padding-left: 50px;
+            display: flex;
+            flex-direction: column;
         }
 
         .item-details.collapsed {
-            max-height: 0;
-            opacity: 0;
+            display: none;
         }
 
-        .detail-content {
-            padding-left: 16px;
-            padding-top: 16px;
-            padding-bottom: 16px;
-            border-top: 1px solid #f0f0f0;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
+        .item.function .item-details {
+            gap: 10px;
+            padding-top: 8px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #f0f0f0;
         }
 
         .runtime-calls {
@@ -364,6 +317,8 @@
             color: #333;
             font-size: 0.9em;
             align-items: center;
+            padding-top: 4px;
+            padding-bottom: 8px;
         }
 
         .call-item {
@@ -404,6 +359,7 @@
             color: #999;
             font-style: italic;
             font-size: 0.9em;
+            padding: 8px 0;
         }
 
         .no-files {
@@ -539,7 +495,7 @@
                 </div>
             </div>
 
-            <div class="detail-content">
+            <div class="file-body">
                 {% for item in file.members recursive %}
                 <div class="item {{ item.kind }}" data-coverage="{{ '%.2f'|format(item.coverage.ratio if item.coverage else 0) }}" data-name="{{ item.name | lower }}">
                     <div class="item-header" onclick="toggleDetails(this)">
@@ -548,9 +504,6 @@
                             <div class="signature-display">
                                 <span class="keyword">{% if item.kind == 'class' %}class{% else %}def{% endif %}</span>
                                 <span class="function-name">{{ item.name }}</span>
-                                {% if item.decorators %}
-                                    {% for decorator in item.decorators %}<span class="decorator-badge {{ decorator | lower }}">{{ decorator }}</span>{% endfor %}
-                                {% endif %}
                                 {% if item.kind == 'function' %}
                                     {% if item.signature %}
                                         {{ render_signature(item.signature) }}
@@ -571,38 +524,36 @@
                     </div>
 
                     <div class="item-details">
-                        <div class="detail-content">
-                            {% if item.kind == 'class' %}
-                                {% if item.members %}
-                                    {{ loop(item.members) }}
-                                {% else %}
-                                    <div class="no-details">This class has no members.</div>
-                                {% endif %}
+                        {% if item.kind == 'class' %}
+                            {% if item.members %}
+                                {{ loop(item.members) }}
                             {% else %}
-                                {% if item.call_details %}
-                                    <!-- {{ item.call_details }} -->
-                                    {% for title, class, calls in [
-                                        ("⚡️ Matched runtime calls", "matched", item.call_details.matched),
-                                        ("⚠️ Unmatched return value", "unmatched_ret", item.call_details.unmatched_ret),
-                                        ("💥 Exceptions", "unmatched_ret", item.call_details.exceptions),
-                                        ("❗️ Signature mismatch", "unmatched_sig", item.call_details.unmatched_calls),
-                                    ] %}
-                                    {% if calls %}
-                                        <div class="runtime-calls">
-                                            <div class="runtime-calls-title">{{ title }} ({{ calls | length }})</div>
-                                            {% for call in calls %}
-                                                <div class="call-item {{ class }}">
-                                                    {{ render_call_signature(call) }}
-                                                </div>
-                                            {% endfor %}
-                                        </div>
-                                    {% endif %}
-                                    {% endfor %}
-                                {% else %}
-                                    <div class="no-details">No calls were traced for this function.</div>
-                                {% endif %}
+                                <div class="no-details">This class has no members.</div>
                             {% endif %}
-                        </div>
+                        {% else %}
+                            {% if item.call_details %}
+                                <!-- {{ item.call_details }} -->
+                                {% for title, class, calls in [
+                                    ("⚡️ Matched runtime calls", "matched", item.call_details.matched),
+                                    ("⚠️ Unmatched return value", "unmatched_ret", item.call_details.unmatched_ret),
+                                    ("💥 Exceptions", "unmatched_ret", item.call_details.exceptions),
+                                    ("❗️ Signature mismatch", "unmatched_sig", item.call_details.unmatched_calls),
+                                ] %}
+                                {% if calls %}
+                                    <div class="runtime-calls">
+                                        <div class="runtime-calls-title">{{ title }} ({{ calls | length }})</div>
+                                        {% for call in calls %}
+                                            <div class="call-item {{ class }}">
+                                                {{ render_call_signature(call) }}
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                {% endfor %}
+                            {% else %}
+                                <div class="no-details">No calls were traced for this function.</div>
+                            {% endif %}
+                        {% endif %}
                     </div>
                 </div>
                 {% endfor %}
