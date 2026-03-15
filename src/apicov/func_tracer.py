@@ -23,7 +23,11 @@ class Overload:
 
     @classmethod
     def from_callable(cls, func: Callable[..., Any], encapsulating_class: type | None) -> Self:
-        signature = inspect.signature(func)
+        try:
+            signature = inspect.signature(func, eval_str=True)
+        except Exception:
+            # perhaps the exception comes from evaluating stringized annotations, try again without evaluating them
+            signature = inspect.signature(func)
         return cls(
             func,
             signature,
