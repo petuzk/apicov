@@ -142,7 +142,7 @@ def get_annotation(annotation: Any) -> TypeAnnotation:
         isinstance(None, annotation)  # check if it's a simple type annotation
         return InstanceAnnotation(annotation)
     except TypeError:
-        return UnknownAnnotation(str(annotation))
+        return UnknownAnnotation(repr(annotation))
 
 
 class NoneAnnotation(TypeAnnotation):
@@ -273,11 +273,5 @@ class UnknownAnnotation(TypeAnnotation):
     def __str__(self) -> str:
         return self.label
 
-    class Match(TypeMatch):
-        def __str__(self) -> str:
-            return "<unknown>"
-
-    _MATCH = Match()  # singleton match object since it has no data
-
     def match(self, value: object) -> TypeMatch | None:
-        return self._MATCH  # we don't know how to check this type, so match everything
+        return None  # we don't know how to check this type, so match nothing to avoid false positives
