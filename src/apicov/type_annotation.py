@@ -4,6 +4,8 @@ from typing import Any, Never, NoReturn
 
 from typing_inspect import get_args, is_union_type
 
+from apicov.classify import classify
+
 
 class TypeMatch:
     """A successful match of a runtime value against a type annotation.
@@ -104,7 +106,7 @@ class NoAnnotation(TypeAnnotation):
             return self.label
 
     def match(self, value: object) -> TypeMatch | None:
-        return self.Match("None" if value is None else type(value).__qualname__)  # matches everything
+        return self.Match(classify(value))  # matches everything
 
 
 class SelfAnnotation(TypeAnnotation):
