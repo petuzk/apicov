@@ -9,9 +9,10 @@ from typing import Any
 
 from rich import print
 
-from apicov.func_tracer import FuncTracer
+from apicov.func_tracer import FuncTracer, UnmatchedException, UnmatchedValue
 from apicov.html import generate_html_report
 from apicov.sysmon import Tracer
+from apicov.type_annotation import TypeMatch
 
 
 @contextmanager
@@ -95,19 +96,22 @@ def main() -> int:
             calls = func_info.matched_calls[overload]
             if not calls:
                 print("  [italic]no calls[/]")
-            for param_matches, result_match, exception in calls:
+            for param_matches, result in calls:
                 args_str = ", ".join(str(m) for m in param_matches)
-                if not exception:
-                    print(f"  ({args_str}) -> {result_match or '[red italic]unmatched[/]'}")
-                else:
-                    print(f"  ({args_str}) raised {exception}")
+                if isinstance(result, TypeMatch):
+                    print(f"  ({args_str}) -> {result}")
+                elif isinstance(result, UnmatchedValue):
+                    print(f"  ({args_str}) -> [red bold]{result}[/]")
+                elif isinstance(result, UnmatchedException):
+                    print(f"  ({args_str}) [red italic]raised {result.exc_repr}[/]")
         if func_info.unmatched_calls:
             print(f"{formatted_name} [italic]unmatched[/]:")
-            for args_str, outcome, result_str in func_info.unmatched_calls:
-                if outcome == "return":
-                    print(f"  ({args_str}) -> {result_str}")
-                else:
-                    print(f"  ({args_str}) raised {result_str}")
+            for unmatched_args, result in func_info.unmatched_calls:
+                args_str = ", ".join(f"{name}: {arg}" for name, arg in unmatched_args)
+                if isinstance(result, UnmatchedValue):
+                    print(f"  ({args_str}) -> {result}")
+                elif isinstance(result, UnmatchedException):
+                    print(f"  ({args_str}) raised {result.exc_repr}")
 
     return exit_code
 

@@ -6,7 +6,7 @@ from typing import Any
 
 from jinja2 import Environment, PackageLoader
 
-from apicov.func_tracer import FuncTracer, Overload, OverloadCoverage
+from apicov.func_tracer import FuncTracer, Overload, OverloadCoverage, UnmatchedException, UnmatchedValue
 from apicov.type_annotation import NoAnnotation, TypeAnnotation, TypeCoverage, TypeMatch, UnionAnnotation
 
 
@@ -88,8 +88,9 @@ def process_tracer(tracer: FuncTracer) -> list[dict[str, Any]]:
     ]
 
     unmatched_calls = [
-        {"args": arg_repr, "result": f"{result_type}: {result_repr}"}
-        for arg_repr, result_type, result_repr in tracer.unmatched_calls
+        {"args": ", ".join(f"{name}: {arg}" for name, arg in unmatched_args)}
+        | ({"return_type": str(result)} if isinstance(result, UnmatchedValue) else {"result": f"raised {result}"})
+        for unmatched_args, result in tracer.unmatched_calls
     ]
 
     if unmatched_calls:
@@ -110,23 +111,25 @@ def process_tracer(tracer: FuncTracer) -> list[dict[str, Any]]:
     return converted
 
 
-def get_call_details(calls: Iterable[tuple[tuple[TypeMatch, ...], TypeMatch | None, str | None]]) -> dict[str, Any]:
+def get_call_details(
+    calls: Iterable[tuple[tuple[TypeMatch, ...], TypeMatch | UnmatchedValue | UnmatchedException]],
+) -> dict[str, Any]:
     """Convert signature's call details (parameters, return value, exception) into a format expected by template."""
     matched = []
     unmatched_ret = []
     exceptions = []
-    for params, retval, exception in calls:
+    for params, result in calls:
         converted_params = {"parameters": [str(p) for p in params]}
-        if retval is not None:
-            matched.append(converted_params | {"return_type": str(retval)})
-        elif exception is not None:
-            exceptions.append(converted_params | {"result": exception})
+        if isinstance(result, TypeMatch):
+            matched.append(converted_params | {"return_type": str(result)})
+        elif isinstance(result, UnmatchedValue):
+            unmatched_ret.append(converted_params | {"return_type": str(result)})
+        elif isinstance(result, UnmatchedException):
+            exceptions.append(converted_params | {"result": f"raised {result}"})
         else:
-            # return value didn't match return annotation
-            # TODO: show type and value repr
-            unmatched_ret.append(converted_params | {"return_type": "?"})
-    result = {"matched": matched, "unmatched_ret": unmatched_ret, "exceptions": exceptions}
-    return {k: v for k, v in result.items() if v}
+            raise TypeError(f"invalid result type: {type(result)}")
+    result_dict = {"matched": matched, "unmatched_ret": unmatched_ret, "exceptions": exceptions}
+    return {k: v for k, v in result_dict.items() if v}
 
 
 def convert_signature(overload: Overload, coverage: OverloadCoverage) -> dict[str, Any]:

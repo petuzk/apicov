@@ -5,8 +5,9 @@ from functools import reduce
 from operator import mul
 from reprlib import Repr
 from types import FrameType
-from typing import Any, Literal, Self, get_overloads
+from typing import Any, Self, get_overloads
 
+from apicov.classify import classify
 from apicov.type_annotation import NoAnnotation, SelfAnnotation, TypeAnnotation, TypeCoverage, TypeMatch, get_annotation
 
 _repr = Repr(maxlong=20, maxstring=50, maxother=50).repr
@@ -79,7 +80,7 @@ class Overload:
         are_returns = (*([False] * len(self.param_annotations)), True)
 
         flattened = ((*params, return_match) for params, return_match in matches)
-        match_sets = tuple(map(set, zip(*flattened)))
+        match_sets = list(map(set, zip(*flattened)))
         # if there are no matches, create empty sets for each annotation
         if not match_sets:
             match_sets = [set() for _ in annotations]
@@ -102,26 +103,52 @@ class OverloadCoverage:
         return reduce(mul, self.param_coverages, self.return_coverage)
 
 
+@dataclass(frozen=True)
+class UnmatchedValue:
+    """Information about runtime value that did not match its type annotation."""
+
+    type_label: str
+
+    def __str__(self) -> str:
+        return self.type_label
+
+    @classmethod
+    def from_value(cls, value: Any) -> Self:
+        return cls(classify(value))
+
+
+@dataclass(frozen=True)
+class UnmatchedException:
+    """Information about an exception raised from a traced function that did not match the return type annotation."""
+
+    exc_repr: str
+
+    def __str__(self) -> str:
+        return self.exc_repr
+
+    @classmethod
+    def from_exception(cls, exception: BaseException) -> Self:
+        return cls(_repr(exception))
+
+
 @dataclass(frozen=True, eq=False)
 class FuncTracer:
     """Tracer for a single function, matching its calls against its overloads and recording the matches."""
 
+    type MatchedArgs = tuple[TypeMatch, ...]
+    type UnmatchedArgs = tuple[tuple[str, UnmatchedValue], ...]  # represents a mapping immutably
+    type UnmatchedResult = UnmatchedValue | UnmatchedException
+
     original_func: Callable[..., Any]
     matched_calls: Mapping[
-        Overload,
-        dict[
-            # for each overload, store all calls that matched it
-            # as (matches for parameters, match for return/unwind, exception repr if unwind else None)
-            # use dict with None values for ordered set semantics, and potential storage for per-call metadata
-            tuple[tuple[TypeMatch, ...], TypeMatch | None, str | None],
-            None,
-        ],
+        # For each overload, store all calls that matched its parameters as a tuple
+        # (matches for parameters, return match or UnmatchedResult)
+        # Note that non-matching result (return/unwind) is still stored in matched_calls.
+        # Use dict with None values for ordered set semantics, and potential storage for per-call metadata.
+        Overload, dict[tuple[MatchedArgs, TypeMatch | UnmatchedResult], None]
     ]
-    unmatched_calls: dict[
-        # store reprs of everything as a way to make it immutable
-        tuple[str, Literal["return", "unwind"], str],
-        None,
-    ]
+    # Store calls that did not match any overload as (tuple({parameter name: argument}.items()), UnmatchedResult)
+    unmatched_calls: dict[tuple[UnmatchedArgs, UnmatchedResult], None]
 
     @classmethod
     def from_callable(cls, func: Callable[..., Any], encapsulating_class: type | None) -> Self:
@@ -132,9 +159,9 @@ class FuncTracer:
             {},
         )
 
-    type StartKey = tuple[Overload, tuple[TypeMatch, ...]] | tuple[None, str]
+    type _StartKey = tuple[Overload, MatchedArgs] | tuple[None, UnmatchedArgs]
 
-    def on_start(self, frame: FrameType) -> StartKey:
+    def on_start(self, frame: FrameType) -> _StartKey:
         """Select an overload matching this call, and return a key with parameter matches.
 
         If no overload matches, return a key with a string representation of the arguments.
@@ -143,36 +170,35 @@ class FuncTracer:
             matches = overload.match(frame)
             if matches is not None:
                 return overload, matches
-        # if no overload matches, return the actual argument values for reporting
-        return None, ", ".join(f"{k}={_repr(v)}" for k, v in frame.f_locals.items())
+        # if no overload matches, return parameter names and argument types
+        return None, tuple((k, UnmatchedValue.from_value(v)) for k, v in frame.f_locals.items())
 
-    def on_return(self, key: StartKey, retval: object) -> None:
+    def on_return(self, key: _StartKey, retval: object) -> None:
         """Record a call started with `key` which returned the given return value."""
         if key[0] is not None:
             overload, matches = key
-            return_match = overload.return_annotation.match(retval)
-            matched_key = (matches, return_match, None)
-            self.matched_calls[overload][matched_key] = None
+            result = overload.return_annotation.match(retval) or UnmatchedValue.from_value(retval)
+            self.matched_calls[overload][(matches, result)] = None
         else:
-            _, args_str = key
-            self.unmatched_calls[(args_str, "return", _repr(retval))] = None
+            _, unmatched_args = key
+            self.unmatched_calls[(unmatched_args, UnmatchedValue.from_value(retval))] = None
 
-    def on_unwind(self, key: StartKey, exception: BaseException) -> None:
+    def on_unwind(self, key: _StartKey, exception: BaseException) -> None:
         """Record a call started with `key` which raised the given exception."""
         if key[0] is not None:
             overload, matches = key
-            return_match = overload.return_annotation.match_unwind(exception)
-            matched_key = (matches, return_match, _repr(exception))
-            self.matched_calls[overload][matched_key] = None
+            result = overload.return_annotation.match_unwind(exception) or UnmatchedException.from_exception(exception)
+            self.matched_calls[overload][(matches, result)] = None
         else:
-            _, args_str = key
-            self.unmatched_calls[(args_str, "unwind", _repr(exception))] = None
+            _, unmatched_args = key
+            self.unmatched_calls[(unmatched_args, UnmatchedException.from_exception(exception))] = None
 
     def analyze_coverage(self) -> dict[Overload, OverloadCoverage]:
         """Analyze coverage of each overload based on recorded runtime values."""
         return {
+            # ignore calls that did not match the return type as they are non compliant with API
             overload: overload.analyze_coverage(
-                (matches, return_match) for (matches, return_match, _) in calls if return_match
+                (matches, return_match) for (matches, return_match) in calls if isinstance(return_match, TypeMatch)
             )
             for overload, calls in self.matched_calls.items()
         }
