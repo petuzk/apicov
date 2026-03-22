@@ -1,4 +1,4 @@
-from typing import Any, Never, NoReturn, Optional, Union
+from typing import Any, Literal, Never, NoReturn, Optional, Union
 
 import pytest
 
@@ -15,6 +15,7 @@ from apicov.type_annotation import SelfAnnotation, get_annotation
         (int | str, "hello", "str"),
         (Union[int, str], 42, "int"),  # noqa: UP007 (intentional usage of Union to test support)
         (Union[int, str], 3.14, None),  # noqa: UP007 (intentional usage of Union to test support)
+        (Union[int, Union[str, None]], 3.14, None),  # noqa: UP007 (intentional usage of Union to test support)
         (type(None), None, "None"),
         (None, None, "None"),
         (None, 42, None),
@@ -23,6 +24,8 @@ from apicov.type_annotation import SelfAnnotation, get_annotation
         (Any, 42, "Any"),
         (Never, 42, None),
         (NoReturn, 42, None),
+        (Literal["foo", "bar"], "bar", "Literal['bar']"),
+        (Literal[Literal[Literal[1, 2, 3], "foo"], 5, None], 2, "Literal[2]"),  # noqa: RUF041 (intentionally nested)
     ],
 )
 def test_type_annotation_match(annotation, value, match_str):

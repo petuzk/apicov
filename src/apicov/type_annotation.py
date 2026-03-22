@@ -1,12 +1,13 @@
 import inspect
 from collections.abc import Collection, Iterable
 from dataclasses import dataclass
+from enum import Enum
 from functools import reduce
 from operator import add
 from types import NoneType
-from typing import Any, Never, NoReturn
+from typing import Any, Literal, Never, NoReturn, TypeAlias
 
-from typing_inspect import get_args, is_union_type
+from typing_inspect import get_args, get_origin, is_union_type
 
 from apicov.classify import classify
 
@@ -187,6 +188,11 @@ def get_annotation(annotation: Any) -> TypeAnnotation:
         return NeverAnnotation()
     if is_union_type(annotation):
         return UnionAnnotation(map(get_annotation, get_args(annotation)))
+    if (origin := get_origin(annotation)) is not None:
+        # annotation is a parametrized type
+        if origin is Literal:
+            return LiteralAnnotation(get_args(annotation))
+        return UnknownAnnotation(repr(annotation))
     try:
         isinstance(None, annotation)  # check if it's a simple type annotation
         return InstanceAnnotation(annotation)
@@ -323,6 +329,46 @@ class UnionAnnotation(TypeAnnotation):
         options_cov = [option.analyze_coverage(option_matches[i], is_return) for i, option in enumerate(self.options)]
         coverage_sum = reduce(add, options_cov)
         return TypeCoverage(coverage_sum.hits, coverage_sum.total, options_cov)
+
+
+# not a type statement to make it usable for isinstance check
+LiteralOption: TypeAlias = int | str | bytes | bool | Enum | None  # noqa: UP040 (see above)
+
+
+class LiteralAnnotation(TypeAnnotation):
+    """Represents a typing.Literal annotation.
+
+    Specification: https://typing.python.org/en/latest/spec/literal.html
+    """
+
+    def __init__(self, options: Iterable[LiteralOption]):
+        self.options = dict.fromkeys(options)  # ordered set semantics
+
+    def get_origin(self) -> str:
+        return "Literal"
+
+    def get_args(self) -> list[str]:
+        return [repr(opt) for opt in self.options]
+
+    @dataclass(frozen=True, slots=True)
+    class Match(TypeMatch):
+        option: LiteralOption
+
+        def __str__(self) -> str:
+            return f"Literal[{self.option!r}]"
+
+    def match(self, value: object) -> TypeMatch | None:
+        if isinstance(value, LiteralOption) and value in self.options:
+            return self.Match(value)
+        return None
+
+    def analyze_coverage(self, matches: set[TypeMatch], is_return: bool) -> TypeCoverage:
+        covered_options = {match.option for match in matches}
+        return TypeCoverage(
+            hits=len(covered_options),
+            total=len(self.options),
+            args_cov=[TypeCoverage(int(opt in covered_options), 1) for opt in self.options],
+        )
 
 
 class UnknownAnnotation(TypeAnnotation):
