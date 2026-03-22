@@ -7,7 +7,14 @@ from typing import Any
 from jinja2 import Environment, PackageLoader
 
 from apicov.func_tracer import FuncTracer, Overload, OverloadCoverage, UnmatchedException, UnmatchedValue
-from apicov.type_annotation import NoAnnotation, TypeAnnotation, TypeCoverage, TypeMatch, UnionAnnotation
+from apicov.type_annotation import (
+    NoAnnotation,
+    TypeAnnotation,
+    TypeCoverage,
+    TypeMatch,
+    UnionAnnotation,
+    UnknownAnnotation,
+)
 
 
 def generate_html_report(tracers: Iterable[FuncTracer]) -> Iterable[str]:
@@ -145,8 +152,8 @@ def convert_signature(overload: Overload, coverage: OverloadCoverage) -> dict[st
     }
 
 
-def convert_type_annotation(anno: TypeAnnotation, coverage: TypeCoverage) -> list[dict[str, Any]] | None:
-    """Convert a type annotation (which may be a union, or NoAnnotation) into a format expected by template.
+def convert_type_annotation(anno: TypeAnnotation | str, coverage: TypeCoverage | None) -> list[dict[str, Any]] | None:
+    """Convert a type annotation into a format expected by template.
 
     Each type is represented as a list of union options, with coverage info for each option.
     If the annotation is not a union, the list will have only one element.
@@ -155,17 +162,39 @@ def convert_type_annotation(anno: TypeAnnotation, coverage: TypeCoverage) -> lis
     if isinstance(anno, NoAnnotation):
         return None
     if isinstance(anno, UnionAnnotation):
-        return [convert_single_type_annotation(opt, opt in coverage.covered_annotations) for opt in anno.options]
-    return [convert_single_type_annotation(anno, coverage.hits == coverage.total)]
+        assert coverage is not None and coverage.args_cov is not None
+        return list(map(convert_single_type_annotation, anno.options, coverage.args_cov))
+    if isinstance(anno, UnknownAnnotation):
+        # display UnknownAnnotation as uncoverable
+        coverage = None
+    return [convert_single_type_annotation(anno, coverage)]
 
 
-def convert_single_type_annotation(anno: TypeAnnotation, covered: bool) -> dict[str, Any]:
+def convert_single_type_annotation(anno: TypeAnnotation | str, coverage: TypeCoverage | None) -> dict[str, Any]:
     """Convert a single (non-union) type annotation into a format expected by template."""
     return {
-        "name": str(anno),
-        "covered": covered,
-        "args": None,  # TODO: generics are not supported in backend yet
+        "name": anno.get_origin() if isinstance(anno, TypeAnnotation) else anno,
+        "cov_type": get_cov_type(coverage),
+        "args": get_type_args(anno, coverage),
     }
+
+
+def get_cov_type(coverage: TypeCoverage | None) -> str:
+    if coverage is None:
+        return "uncoverable"
+    if coverage.hits == coverage.total:
+        return "cov-full"
+    if not coverage.hits:
+        return "cov-none"
+    return "cov-partial"
+
+
+def get_type_args(anno: TypeAnnotation | str, coverage: TypeCoverage | None) -> list[list[dict[str, Any]]] | None:
+    if not isinstance(anno, TypeAnnotation) or (args := anno.get_args()) is None:
+        return None
+    # dealing with a parametrized type annotation, so expect parametrized coverage
+    assert coverage is not None and coverage.args_cov is not None
+    return list(filter(None, map(convert_type_annotation, args, coverage.args_cov)))
 
 
 def convert_coverage(coverage: TypeCoverage) -> dict[str, Any]:

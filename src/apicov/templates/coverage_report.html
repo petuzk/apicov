@@ -209,7 +209,7 @@
             color: #555;
         }
 
-        .union-member {
+        .type-element {
             margin: 0 2px;
             display: inline;
             padding: 0 2px;
@@ -217,12 +217,17 @@
             font-weight: 500;
         }
 
-        .union-member.covered {
+        .type-element.cov-full {
             background: rgba(40, 167, 69, 0.25);
             color: #155724;
         }
 
-        .union-member.uncovered {
+        .type-element.cov-partial {
+            background: rgba(254, 244, 181, 1);
+            color: #574c15;
+        }
+
+        .type-element.cov-none {
             background: rgba(220, 53, 69, 0.25);
             color: #721c24;
         }
@@ -396,10 +401,10 @@
     {%- endmacro %}
 
     {% macro render_type_hint(type_obj) -%}
-        <span class="union-member {% if type_obj.covered %}covered{% else %}uncovered{% endif %}">{{ type_obj.name }}</span>
+        <span class="type-element{% if type_obj.cov_type %} {{type_obj.cov_type}}{% endif %}">{{ type_obj.name }}</span>
         {%- if type_obj.args -%}
-            {#- Render arguments of a generic type -#}
-            <span>[</span>{% for arg in type_obj.args %}{% if not loop.first %}<span>, </span>{% endif %}{{ render_type_hint(arg) }}{% endfor %}<span>]</span>
+            {#- Render arguments of a parametrized type -#}
+            <span>[</span>{% for arg in type_obj.args %}{% if not loop.first %}<span>, </span>{% endif %}{{ render_type_hint_list(arg) }}{% endfor %}<span>]</span>
         {%- endif -%}
     {%- endmacro %}
 
