@@ -25,6 +25,8 @@ class TypeMatch:
     any information, since the annotation doesn't require any specific type.
     """
 
+    __slots__ = ()
+
 
 @dataclass(frozen=True, slots=True)
 class TypeCoverage:
@@ -136,6 +138,16 @@ class TypeAnnotation:
         return f"<{type(self).__name__}>"
 
 
+@dataclass(frozen=True, slots=True)
+class _SimpleTypeMatch(TypeMatch):
+    """A type match that only stores a label representing the type of a runtime value."""
+
+    type_label: str
+
+    def __str__(self) -> str:
+        return self.type_label
+
+
 class NoAnnotation(TypeAnnotation):
     """Special class to handle an absence of a type annotation in a generic way."""
 
@@ -145,15 +157,8 @@ class NoAnnotation(TypeAnnotation):
     def __str__(self) -> str:
         return "<no annotation>"
 
-    @dataclass(frozen=True, slots=True)
-    class Match(TypeMatch):
-        label: str
-
-        def __str__(self) -> str:
-            return self.label
-
     def match(self, value: object) -> TypeMatch | None:
-        return self.Match(classify(value))  # matches everything
+        return _SimpleTypeMatch(classify(value))  # matches everything
 
 
 class SelfAnnotation(TypeAnnotation):
@@ -162,17 +167,14 @@ class SelfAnnotation(TypeAnnotation):
     def __init__(self, bound_class: type) -> None:
         self.bound_class = bound_class
 
-    def get_origin(self) -> str:
+    @staticmethod
+    def get_origin() -> str:
         return "Self"
 
     def __str__(self) -> str:
         return f"Self:{self.bound_class.__qualname__}"
 
-    class Match(TypeMatch):
-        def __str__(self) -> str:
-            return "Self"
-
-    _MATCH = Match()  # singleton match object since it has no data
+    _MATCH = _SimpleTypeMatch(get_origin())
 
     def match(self, value: object) -> TypeMatch | None:
         return self._MATCH if isinstance(value, self.bound_class) else None
@@ -203,14 +205,11 @@ def get_annotation(annotation: Any) -> TypeAnnotation:
 class NoneAnnotation(TypeAnnotation):
     """Represents the `None` type annotation."""
 
-    def get_origin(self) -> str:
+    @staticmethod
+    def get_origin() -> str:
         return "None"
 
-    class Match(TypeMatch):
-        def __str__(self) -> str:
-            return "None"
-
-    _MATCH = Match()  # singleton match object since it has no data
+    _MATCH = _SimpleTypeMatch(get_origin())
 
     def match(self, value: object) -> TypeMatch | None:
         return self._MATCH if value is None else None
@@ -219,14 +218,11 @@ class NoneAnnotation(TypeAnnotation):
 class AnyAnnotation(TypeAnnotation):
     """Represents the `Any` type annotation. Matches all runtime values."""
 
-    def get_origin(self) -> str:
+    @staticmethod
+    def get_origin() -> str:
         return "Any"
 
-    class Match(TypeMatch):
-        def __str__(self) -> str:
-            return "Any"
-
-    _MATCH = Match()  # singleton match object since it has no data
+    _MATCH = _SimpleTypeMatch(get_origin())
 
     def match(self, value: object) -> TypeMatch | None:
         return self._MATCH  # matches everything
@@ -244,14 +240,11 @@ class NeverAnnotation(TypeAnnotation):
     since the function does not return in this case.
     """
 
-    def get_origin(self) -> str:
+    @staticmethod
+    def get_origin() -> str:
         return "Never"
 
-    class Match(TypeMatch):
-        def __str__(self) -> str:
-            return "Never"
-
-    _MATCH = Match()  # singleton match object since it has no data
+    _MATCH = _SimpleTypeMatch(get_origin())
 
     def match(self, value: object) -> TypeMatch | None:
         return None
