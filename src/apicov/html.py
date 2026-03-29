@@ -9,6 +9,8 @@ from jinja2 import Environment, PackageLoader
 from apicov.func_tracer import FuncTracer, Overload, OverloadCoverage, UnmatchedException, UnmatchedValue
 from apicov.type_annotation import (
     NoAnnotation,
+    ParametrizedTypeAnnotation,
+    ParametrizedTypeCoverage,
     TypeAnnotation,
     TypeCoverage,
     TypeMatch,
@@ -162,7 +164,7 @@ def convert_type_annotation(anno: TypeAnnotation | str, coverage: TypeCoverage |
     if isinstance(anno, NoAnnotation):
         return None
     if isinstance(anno, UnionAnnotation):
-        assert coverage is not None and coverage.args_cov is not None
+        assert isinstance(coverage, ParametrizedTypeCoverage)
         return list(map(convert_single_type_annotation, anno.options, coverage.args_cov))
     if isinstance(anno, UnknownAnnotation):
         # display UnknownAnnotation as uncoverable
@@ -172,11 +174,15 @@ def convert_type_annotation(anno: TypeAnnotation | str, coverage: TypeCoverage |
 
 def convert_single_type_annotation(anno: TypeAnnotation | str, coverage: TypeCoverage | None) -> dict[str, Any]:
     """Convert a single (non-union) type annotation into a format expected by template."""
-    return {
-        "name": anno.get_origin() if isinstance(anno, TypeAnnotation) else anno,
-        "cov_type": get_cov_type(coverage),
-        "args": get_type_args(anno, coverage),
-    }
+    cov_type = {"cov_type": get_cov_type(coverage)}
+    match anno:
+        case ParametrizedTypeAnnotation():
+            return cov_type | {"name": anno.get_origin(), "args": get_type_args(anno, coverage)}
+        case TypeAnnotation():
+            return cov_type | {"name": anno.get_origin(), "args": None}
+        case str(name):
+            return cov_type | {"name": name, "args": None}
+    raise TypeError(f"unexpected annotation: {anno!r}")
 
 
 def get_cov_type(coverage: TypeCoverage | None) -> str:
@@ -189,12 +195,10 @@ def get_cov_type(coverage: TypeCoverage | None) -> str:
     return "cov-partial"
 
 
-def get_type_args(anno: TypeAnnotation | str, coverage: TypeCoverage | None) -> list[list[dict[str, Any]]] | None:
-    if not isinstance(anno, TypeAnnotation) or (args := anno.get_args()) is None:
-        return None
+def get_type_args(anno: ParametrizedTypeAnnotation, coverage: TypeCoverage | None) -> list[list[dict[str, Any]]]:
     # dealing with a parametrized type annotation, so expect parametrized coverage
-    assert coverage is not None and coverage.args_cov is not None
-    return list(filter(None, map(convert_type_annotation, args, coverage.args_cov)))
+    assert isinstance(coverage, ParametrizedTypeCoverage)
+    return list(filter(None, map(convert_type_annotation, anno.get_args(), coverage.args_cov)))
 
 
 def convert_coverage(coverage: TypeCoverage) -> dict[str, Any]:

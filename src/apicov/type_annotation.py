@@ -1,11 +1,13 @@
 import inspect
+import sys
 from collections.abc import Collection, Iterable
+from collections.abc import Set as ImmutableSet
 from dataclasses import dataclass
 from enum import Enum
 from functools import reduce
 from operator import add
 from types import NoneType
-from typing import Any, Literal, Never, NoReturn, TypeAlias
+from typing import TYPE_CHECKING, Any, Generic, Literal, Never, NoReturn, TypeAlias, TypeVar
 
 from typing_inspect import get_args, get_origin, is_union_type
 
@@ -50,14 +52,6 @@ class TypeCoverage:
     The value of zero implies that there are no possible permutations, so it is considered 100% coverage.
     """
 
-    args_cov: Collection["TypeCoverage | None"] | None = None
-    """Coverage corresponding to arguments of a parametrized type annotation, or None if not parametrized.
-
-    If TypeCoverage is produced by a parametrized type annotation, this is a Collection of
-    the same length as annotation's `get_args()`. Each object is either a `TypeCoverage`
-    if the corresponding argument is coverable, or None otherwise.
-    """
-
     @property
     def ratio(self) -> float:
         """Calculate the coverage ratio as hits divided by total, or 1.0 if total is zero."""
@@ -82,7 +76,26 @@ class TypeCoverage:
         return TypeCoverage(self.hits + other.hits, self.total + other.total)
 
 
-class TypeAnnotation:
+@dataclass(frozen=True, slots=True)
+class ParametrizedTypeCoverage(TypeCoverage):
+    args_cov: Collection[TypeCoverage | None]
+    """Coverage corresponding to arguments of a ParametrizedTypeAnnotation.
+
+    This Collection must be of the same length as annotation's `get_args()`. Each object
+    is either a `TypeCoverage` if the corresponding argument is coverable, or None otherwise.
+    """
+
+
+# Genericness of TypeAnnotation is an implementation detail to define type returned by match
+# and accepted by analyze_coverage for the type checker. For the caller, a TypeAnnotation
+# always returns some unspecified TypeMatch object.
+if TYPE_CHECKING or sys.version_info >= (3, 13):  # default is a 3.13 feature
+    TM = TypeVar("TM", bound=TypeMatch, covariant=True, default=TypeMatch)
+else:
+    TM = TypeVar("TM", bound=TypeMatch, covariant=True)
+
+
+class TypeAnnotation(Generic[TM]):  # noqa: UP046 (explicit TypeVar must be used with Generic)
     """Represents a type annotation in a function signature.
 
     Allows matching it against runtime values, and analyzing coverage
@@ -97,19 +110,11 @@ class TypeAnnotation:
         """
         raise NotImplementedError
 
-    def get_args(self) -> Collection["TypeAnnotation | str"] | None:
-        """If `self` is a parametrized type annotation, return its arguments. Otherwise return None.
-
-        Each argument may be a TypeAnnotation (such as arguments of generic types), or a string
-        representation of something that is not a type (such as arguments of typing.Annotated).
-        """
-        return None
-
-    def match(self, value: object) -> TypeMatch | None:
+    def match(self, value: object) -> TM | None:
         """Check if the given value matches this type annotation."""
         raise NotImplementedError
 
-    def match_unwind(self, exception: BaseException) -> TypeMatch | None:
+    def match_unwind(self, exception: BaseException) -> TM | None:
         """Check if an unwind event with the given exception matches this type annotation.
 
         This is only relevant for special return annotations, where
@@ -117,25 +122,36 @@ class TypeAnnotation:
         """
         return None  # by default, unwinds do not match any type annotation
 
-    def analyze_coverage(self, matches: set[TypeMatch], is_return: bool) -> TypeCoverage:
-        """Analyze the coverage of this type annotation based on the matches it produced.
-
-        TypeCoverage must be parametrized (i.e. have its `args_cov` set) if the type annotation is.
-        """
+    def analyze_coverage(self, matches: ImmutableSet[TM], is_return: bool) -> TypeCoverage:
+        """Analyze the coverage of this type annotation based on the matches it produced."""
         # by default, assume one possible type coverable by any match (i.e. 0/1 or 1/1)
         return TypeCoverage(1 if matches else 0, 1)
 
     def __str__(self) -> str:
-        s = self.get_origin()
-        if (args := self.get_args()) is not None:
-            s += f"[{', '.join(map(str, args))}]"
-        return s
+        return self.get_origin()
 
     def __repr__(self) -> str:
         has_params = inspect.signature(type(self)).parameters
         if has_params:
             return f"<{type(self).__name__} for {self}>"
         return f"<{type(self).__name__}>"
+
+
+class ParametrizedTypeAnnotation(TypeAnnotation[TM]):
+    def get_args(self) -> Collection[TypeAnnotation | str]:
+        """Get arguments of a parametrized type annotation.
+
+        Each argument may be a TypeAnnotation (such as arguments of generic types), or a string
+        representation of something that is not a type (such as arguments of typing.Annotated).
+        """
+        raise NotImplementedError
+
+    def analyze_coverage(self, matches: ImmutableSet[TM], is_return: bool) -> ParametrizedTypeCoverage:
+        """Analyze the coverage of this type annotation based on the matches it produced."""
+        raise NotImplementedError
+
+    def __str__(self) -> str:
+        return self.get_origin() + f"[{', '.join(map(str, self.get_args()))}]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,7 +173,7 @@ class NoAnnotation(TypeAnnotation):
     def __str__(self) -> str:
         return "<no annotation>"
 
-    def match(self, value: object) -> TypeMatch | None:
+    def match(self, value: object) -> TypeMatch:
         return _SimpleTypeMatch(classify(value))  # matches everything
 
 
@@ -224,7 +240,7 @@ class AnyAnnotation(TypeAnnotation):
 
     _MATCH = _SimpleTypeMatch(get_origin())
 
-    def match(self, value: object) -> TypeMatch | None:
+    def match(self, value: object) -> TypeMatch:
         return self._MATCH  # matches everything
 
 
@@ -246,19 +262,27 @@ class NeverAnnotation(TypeAnnotation):
 
     _MATCH = _SimpleTypeMatch(get_origin())
 
-    def match(self, value: object) -> TypeMatch | None:
+    def match(self, value: object) -> None:
         return None
 
-    def match_unwind(self, exception: BaseException) -> TypeMatch | None:
+    def match_unwind(self, exception: BaseException) -> TypeMatch:
         return self._MATCH
 
-    def analyze_coverage(self, matches: set[TypeMatch], is_return: bool) -> TypeCoverage:
+    def analyze_coverage(self, matches: ImmutableSet[TypeMatch], is_return: bool) -> TypeCoverage:
         # when used as a return value, coverage is 100% if there was an unwind
         if is_return:
             return TypeCoverage(1 if matches else 0, 1)
         # when used as a parameter, it will not match anything,
         # so coverage is 100% regardless of any other parameters
         return TypeCoverage(0, 0)
+
+
+@dataclass(frozen=True, slots=True)
+class _InstanceMatch(TypeMatch):
+    typ: type
+
+    def __str__(self) -> str:
+        return self.typ.__qualname__
 
 
 class InstanceAnnotation(TypeAnnotation):
@@ -270,20 +294,20 @@ class InstanceAnnotation(TypeAnnotation):
     def get_origin(self) -> str:
         return self.typ.__qualname__
 
-    @dataclass(frozen=True, slots=True)
-    class Match(TypeMatch):
-        typ: type
-
-        def __str__(self) -> str:
-            return self.typ.__qualname__
-
     def match(self, value: object) -> TypeMatch | None:
-        if isinstance(value, self.typ):
-            return self.Match(self.typ)
-        return None
+        return _InstanceMatch(self.typ) if isinstance(value, self.typ) else None
 
 
-class UnionAnnotation(TypeAnnotation):
+@dataclass(frozen=True, slots=True)
+class _UnionMatch(TypeMatch):
+    option_index: int
+    match: TypeMatch
+
+    def __str__(self) -> str:
+        return str(self.match)
+
+
+class UnionAnnotation(ParametrizedTypeAnnotation[_UnionMatch]):
     """Represents a union type annotation like `int | str`."""
 
     def __init__(self, options: Iterable[TypeAnnotation]):
@@ -300,35 +324,35 @@ class UnionAnnotation(TypeAnnotation):
     def __str__(self) -> str:
         return " | ".join(map(str, self.options))
 
-    @dataclass(frozen=True, slots=True)
-    class Match(TypeMatch):
-        option_index: int
-        match: TypeMatch
-
-        def __str__(self) -> str:
-            return str(self.match)
-
-    def match(self, value: object) -> TypeMatch | None:
+    def match(self, value: object) -> _UnionMatch | None:
         for i, option in enumerate(self.options):
             match = option.match(value)
             if match is not None:
-                return self.Match(i, match)
+                return _UnionMatch(i, match)
         return None
 
-    def analyze_coverage(self, matches: set[TypeMatch], is_return: bool) -> TypeCoverage:
+    def analyze_coverage(self, matches: ImmutableSet[_UnionMatch], is_return: bool) -> ParametrizedTypeCoverage:
         option_matches: dict[int, set[TypeMatch]] = {i: set() for i in range(len(self.options))}
         for match in matches:
             option_matches[match.option_index].add(match.match)
         options_cov = [option.analyze_coverage(option_matches[i], is_return) for i, option in enumerate(self.options)]
         coverage_sum = reduce(add, options_cov)
-        return TypeCoverage(coverage_sum.hits, coverage_sum.total, options_cov)
+        return ParametrizedTypeCoverage(coverage_sum.hits, coverage_sum.total, options_cov)
 
 
 # not a type statement to make it usable for isinstance check
 LiteralOption: TypeAlias = int | str | bytes | bool | Enum | None  # noqa: UP040 (see above)
 
 
-class LiteralAnnotation(TypeAnnotation):
+@dataclass(frozen=True, slots=True)
+class _LiteralMatch(TypeMatch):
+    option: LiteralOption
+
+    def __str__(self) -> str:
+        return f"Literal[{self.option!r}]"
+
+
+class LiteralAnnotation(ParametrizedTypeAnnotation[_LiteralMatch]):
     """Represents a typing.Literal annotation.
 
     Specification: https://typing.python.org/en/latest/spec/literal.html
@@ -343,21 +367,14 @@ class LiteralAnnotation(TypeAnnotation):
     def get_args(self) -> list[str]:
         return [repr(opt) for opt in self.options]
 
-    @dataclass(frozen=True, slots=True)
-    class Match(TypeMatch):
-        option: LiteralOption
-
-        def __str__(self) -> str:
-            return f"Literal[{self.option!r}]"
-
-    def match(self, value: object) -> TypeMatch | None:
+    def match(self, value: object) -> _LiteralMatch | None:
         if isinstance(value, LiteralOption) and value in self.options:
-            return self.Match(value)
+            return _LiteralMatch(value)
         return None
 
-    def analyze_coverage(self, matches: set[TypeMatch], is_return: bool) -> TypeCoverage:
+    def analyze_coverage(self, matches: ImmutableSet[_LiteralMatch], is_return: bool) -> ParametrizedTypeCoverage:
         covered_options = {match.option for match in matches}
-        return TypeCoverage(
+        return ParametrizedTypeCoverage(
             hits=len(covered_options),
             total=len(self.options),
             args_cov=[TypeCoverage(int(opt in covered_options), 1) for opt in self.options],
@@ -373,5 +390,5 @@ class UnknownAnnotation(TypeAnnotation):
     def get_origin(self) -> str:
         return self.label
 
-    def match(self, value: object) -> TypeMatch | None:
+    def match(self, value: object) -> None:
         return None  # we don't know how to check this type, so match nothing to avoid false positives
