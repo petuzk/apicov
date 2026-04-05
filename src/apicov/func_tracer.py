@@ -1,5 +1,5 @@
 import inspect
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from functools import reduce
 from operator import mul
@@ -8,6 +8,7 @@ from types import FrameType
 from typing import Any, Self, get_overloads
 
 from apicov.classify import classify
+from apicov.sysmon import AnyCallable
 from apicov.type_annotation import NoAnnotation, SelfAnnotation, TypeAnnotation, TypeCoverage, TypeMatch, get_annotation
 from apicov.util import transpose_into_sets
 
@@ -18,13 +19,13 @@ _repr = Repr(maxlong=20, maxstring=50, maxother=50).repr
 class Overload:
     """Represents a single overload of a function, i.e. a specific combination of parameter and return types."""
 
-    original_func: Callable[..., Any]
+    original_func: AnyCallable
     signature: inspect.Signature
     param_annotations: tuple[TypeAnnotation, ...]  # type annotations for each parameter
     return_annotation: TypeAnnotation  # type annotation for the return value
 
     @classmethod
-    def from_callable(cls, func: Callable[..., Any], encapsulating_class: type | None) -> Self:
+    def from_callable(cls, func: AnyCallable, encapsulating_class: type | None = None) -> Self:
         try:
             signature = inspect.signature(func, eval_str=True)
         except Exception:
@@ -137,7 +138,7 @@ class FuncTracer:
     type UnmatchedArgs = tuple[tuple[str, UnmatchedValue], ...]  # represents a mapping immutably
     type UnmatchedResult = UnmatchedValue | UnmatchedException
 
-    original_func: Callable[..., Any]
+    original_func: AnyCallable
     matched_calls: Mapping[
         # For each overload, store all calls that matched its parameters as a tuple
         # (matches for parameters, return match or UnmatchedResult)
@@ -149,7 +150,7 @@ class FuncTracer:
     unmatched_calls: dict[tuple[UnmatchedArgs, UnmatchedResult], None]
 
     @classmethod
-    def from_callable(cls, func: Callable[..., Any], encapsulating_class: type | None) -> Self:
+    def from_callable(cls, func: AnyCallable, encapsulating_class: type | None = None) -> Self:
         overloads = [Overload.from_callable(f, encapsulating_class) for f in get_overloads(func) or [func]]
         return cls(
             func,

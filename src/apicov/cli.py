@@ -2,16 +2,14 @@ import argparse
 import runpy
 import sys
 import traceback
-from collections.abc import Callable
 from contextlib import contextmanager
 from functools import lru_cache, partial
-from typing import Any
 
 from rich import print
 
 from apicov.func_tracer import FuncTracer, UnmatchedException, UnmatchedValue
 from apicov.html import generate_html_report
-from apicov.sysmon import Tracer
+from apicov.sysmon import AnyCallable, Tracer
 from apicov.type_annotation import TypeMatch
 
 
@@ -44,7 +42,7 @@ def should_trace(filename: str) -> bool:
 
 
 def create_and_store_tracer(
-    storage: list[FuncTracer], func: Callable[..., Any], encapsulating_class: type | None
+    storage: list[FuncTracer], func: AnyCallable, encapsulating_class: type | None
 ) -> FuncTracer:
     tracer = FuncTracer.from_callable(func, encapsulating_class)
     storage.append(tracer)

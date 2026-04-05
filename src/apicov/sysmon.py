@@ -53,8 +53,11 @@ class FuncTracer(Protocol):
         """Callback for function unwind (exception) event."""
 
 
+type AnyCallable = Callable[..., Any]
+
+
 class GetFuncTracerFn[FT: FuncTracer](Protocol):
-    def __call__(self, func: Callable[..., Any], encapsulating_class: type | None) -> FT | None:
+    def __call__(self, func: AnyCallable, encapsulating_class: type | None) -> FT | None:
         """Given a callable object, return a tracer for it, or None to skip tracing this code.
 
         Exceptions raised in this function will be suppressed
