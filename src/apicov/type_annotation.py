@@ -5,13 +5,15 @@ from collections.abc import Set as ImmutableSet
 from dataclasses import dataclass
 from enum import Enum
 from functools import reduce
-from operator import add
+from itertools import chain, takewhile
+from operator import add, mul
 from types import NoneType
-from typing import TYPE_CHECKING, Any, Generic, Literal, Never, NoReturn, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, Never, NoReturn, Self, TypeAlias, TypeVar, cast
 
 from typing_inspect import get_args, get_origin, is_union_type
 
 from apicov.classify import classify
+from apicov.util import transpose_into_sets
 
 
 class TypeMatch:
@@ -85,6 +87,17 @@ class ParametrizedTypeCoverage(TypeCoverage):
     is either a `TypeCoverage` if the corresponding argument is coverable, or None otherwise.
     """
 
+    @classmethod
+    def from_args_cov(cls, args_cov: Collection[TypeCoverage | None], mode: Literal["add", "mul"]) -> Self:
+        """Create self from aggregated argument coverages."""
+        if mode == "add":
+            aggregated = reduce(add, filter(None, args_cov), TypeCoverage(0, 0))
+        elif mode == "mul":
+            aggregated = reduce(mul, filter(None, args_cov), TypeCoverage(1, 1))
+        else:
+            raise ValueError(f"invalid mode: {mode}")
+        return cls(aggregated.hits, aggregated.total, args_cov)
+
 
 # Genericness of TypeAnnotation is an implementation detail to define type returned by match
 # and accepted by analyze_coverage for the type checker. For the caller, a TypeAnnotation
@@ -127,6 +140,12 @@ class TypeAnnotation(Generic[TM]):  # noqa: UP046 (explicit TypeVar must be used
         # by default, assume one possible type coverable by any match (i.e. 0/1 or 1/1)
         return TypeCoverage(1 if matches else 0, 1)
 
+    def repr_matches(self, matches: ImmutableSet[TM]) -> str:
+        """Get a human-readable representation of a non-empty set of matches produced by this annotation."""
+        # by default, assume there's at most one possible match object
+        assert len(matches) == 1
+        return str(next(iter(matches)))
+
     def __str__(self) -> str:
         return self.get_origin()
 
@@ -148,6 +167,10 @@ class ParametrizedTypeAnnotation(TypeAnnotation[TM]):
 
     def analyze_coverage(self, matches: ImmutableSet[TM], is_return: bool) -> ParametrizedTypeCoverage:
         """Analyze the coverage of this type annotation based on the matches it produced."""
+        raise NotImplementedError
+
+    def repr_matches(self, matches: ImmutableSet[TM]) -> str:
+        """Get a human-readable representation of a non-empty set of matches produced by this annotation."""
         raise NotImplementedError
 
     def __str__(self) -> str:
@@ -208,8 +231,19 @@ def get_annotation(annotation: Any) -> TypeAnnotation:
         return UnionAnnotation(map(get_annotation, get_args(annotation)))
     if (origin := get_origin(annotation)) is not None:
         # annotation is a parametrized type
+        args = get_args(annotation)
         if origin is Literal:
-            return LiteralAnnotation(get_args(annotation))
+            return LiteralAnnotation(args)
+        if origin is tuple:
+            if len(args) == 2 and args[-1] is Ellipsis:
+                return HomogeneousTupleAnnotation(get_annotation(args[0]))
+            return HeterogeneousTupleAnnotation(map(get_annotation, args))
+        if len(args) == 1:
+            try:
+                if issubclass(origin, Collection):
+                    return PlainCollectionAnnotation(InstanceAnnotation(origin), get_annotation(args[0]))
+            except TypeError:
+                pass  # origin is not a class
         return UnknownAnnotation(repr(annotation))
     try:
         isinstance(None, annotation)  # check if it's a simple type annotation
@@ -335,9 +369,12 @@ class UnionAnnotation(ParametrizedTypeAnnotation[_UnionMatch]):
         option_matches: dict[int, set[TypeMatch]] = {i: set() for i in range(len(self.options))}
         for match in matches:
             option_matches[match.option_index].add(match.match)
-        options_cov = [option.analyze_coverage(option_matches[i], is_return) for i, option in enumerate(self.options)]
-        coverage_sum = reduce(add, options_cov)
-        return ParametrizedTypeCoverage(coverage_sum.hits, coverage_sum.total, options_cov)
+        return ParametrizedTypeCoverage.from_args_cov(
+            [option.analyze_coverage(option_matches[i], is_return) for i, option in enumerate(self.options)], "add"
+        )
+
+    def repr_matches(self, matches: ImmutableSet[_UnionMatch]) -> str:
+        return " | ".join(map(str, sorted(matches, key=lambda m: m.option_index)))
 
 
 # not a type statement to make it usable for isinstance check
@@ -379,6 +416,157 @@ class LiteralAnnotation(ParametrizedTypeAnnotation[_LiteralMatch]):
             total=len(self.options),
             args_cov=[TypeCoverage(int(opt in covered_options), 1) for opt in self.options],
         )
+
+    def repr_matches(self, matches: ImmutableSet[_LiteralMatch]) -> str:
+        matched_options = {match.option for match in matches}
+        args = ", ".join(repr(opt) for opt in self.options if opt in matched_options)
+        return f"Literal[{args}]"
+
+
+@dataclass(frozen=True, slots=True)
+class _HeterogeneousTupleMatch(TypeMatch):
+    element_matches: tuple[TypeMatch, ...]
+
+    def __str__(self) -> str:
+        if not self.element_matches:
+            return "tuple[()]"
+        return f"tuple[{', '.join(map(str, self.element_matches))}]"
+
+
+class HeterogeneousTupleAnnotation(ParametrizedTypeAnnotation[_HeterogeneousTupleMatch]):
+    """Represents a heterogeneous tuple annotation, such as `tuple[int, str]`.
+
+    Unpacked tuple form is not supported.
+    Specification: https://typing.python.org/en/latest/spec/tuples.html
+    """
+
+    def __init__(self, element_types: Iterable[TypeAnnotation]):
+        self.element_types = tuple(element_types)
+
+    def get_origin(self) -> str:
+        return "tuple"
+
+    def get_args(self) -> tuple[TypeAnnotation, ...]:
+        return self.element_types
+
+    def __str__(self) -> str:
+        if not self.element_types:
+            return "tuple[()]"
+        return super().__str__()
+
+    def match(self, value: object) -> _HeterogeneousTupleMatch | None:
+        if not isinstance(value, tuple) or len(value) != len(self.element_types):
+            return None
+        # use takewhile for "early return" semantics: do not match further after a non-matching element
+        matches = tuple(takewhile(lambda x: x is not None, (t.match(v) for t, v in zip(self.element_types, value))))
+        if len(matches) == len(self.element_types):
+            # nothing was skipped by takewhile, i.e. matches only contains TypeMatches
+            return _HeterogeneousTupleMatch(cast(tuple[TypeMatch], matches))
+        return None
+
+    def analyze_coverage(
+        self, matches: ImmutableSet[_HeterogeneousTupleMatch], is_return: bool
+    ) -> ParametrizedTypeCoverage:
+        element_matches = transpose_into_sets((m.element_matches for m in matches), n=len(self.element_types))
+        return ParametrizedTypeCoverage.from_args_cov(
+            [t.analyze_coverage(m, is_return) for t, m in zip(self.element_types, element_matches)], "mul"
+        )
+
+    def repr_matches(self, matches: ImmutableSet[_HeterogeneousTupleMatch]) -> str:
+        if not self.element_types:
+            return "tuple[()]"
+        args = [
+            t.repr_matches(m)
+            for t, m in zip(self.element_types, transpose_into_sets(m.element_matches for m in matches))
+        ]
+        return f"tuple[{', '.join(args)}]"
+
+
+@dataclass(frozen=True, slots=True)
+class _CollectionMatch(TypeMatch):
+    origin: str
+    unique_element_matches: tuple[TypeMatch, ...]
+    matches_repr: str
+
+    def __str__(self) -> str:
+        return f"{self.origin}[{self.matches_repr}]"
+
+
+class PlainCollectionAnnotation(ParametrizedTypeAnnotation[_CollectionMatch]):
+    """Represents a collection annotation with a single element type, like `list[int]` or `set[str]`."""
+
+    def __init__(self, coll_type: InstanceAnnotation, element_type: TypeAnnotation):
+        if not issubclass(coll_type.typ, Collection):
+            raise TypeError(f"coll_type must be a Collection, got {coll_type.typ}")
+        self.coll_type = coll_type
+        self.element_type = element_type
+
+    def get_origin(self) -> str:
+        return self.coll_type.get_origin()
+
+    def get_args(self) -> list[TypeAnnotation | str]:
+        return [self.element_type]
+
+    def match(self, value: object) -> _CollectionMatch | None:
+        if self.coll_type.match(value) is None:
+            return None
+
+        assert isinstance(value, Collection)
+        if len(value) == 0:
+            # TYPING SEMANTICS EXCEPTION: treat empty collections as not matching, since there is no element
+            # to check the type. This is an exception to the normal typing semantics, where empty collections
+            # match any collection annotation, but this behavior allows for more accurate coverage analysis.
+            # TODO: perhaps "virtual unions" of empty and non-empty collection types would address this?
+            return None
+
+        matches = set()
+        for elem in value:
+            match = self.element_type.match(elem)
+            if match is None:
+                return None
+            matches.add(match)
+        return _CollectionMatch(self.get_origin(), tuple(matches), self.element_type.repr_matches(matches))
+
+    def _flatten_matches(self, matches: ImmutableSet[_CollectionMatch]) -> set[TypeMatch]:
+        return set(chain.from_iterable(m.unique_element_matches for m in matches))
+
+    def analyze_coverage(self, matches: ImmutableSet[_CollectionMatch], is_return: bool) -> ParametrizedTypeCoverage:
+        cov = self.element_type.analyze_coverage(self._flatten_matches(matches), is_return)
+        return ParametrizedTypeCoverage(hits=cov.hits, total=cov.total, args_cov=[cov])
+
+    def repr_matches(self, matches: ImmutableSet[_CollectionMatch]) -> str:
+        arg = self.element_type.repr_matches(self._flatten_matches(matches))
+        return f"{self.get_origin()}[{arg}]"
+
+
+@dataclass(frozen=True, slots=True)
+class _HomogeneousTupleMatch(_CollectionMatch):
+    def __str__(self) -> str:
+        return f"{self.origin}[{self.matches_repr}, ...]"
+
+
+class HomogeneousTupleAnnotation(PlainCollectionAnnotation):
+    """Represents a homogeneous tuple annotation, such as `tuple[int, ...]`."""
+
+    def __init__(self, element_type: TypeAnnotation):
+        super().__init__(InstanceAnnotation(tuple), element_type)
+
+    def get_args(self) -> list[TypeAnnotation | str]:
+        return [self.element_type, "..."]
+
+    def match(self, value: object) -> _HomogeneousTupleMatch | None:
+        if (match := super().match(value)) is not None:
+            # change match type for proper match.__str__
+            return _HomogeneousTupleMatch(match.origin, match.unique_element_matches, match.matches_repr)
+        return None
+
+    def analyze_coverage(self, matches: ImmutableSet[_CollectionMatch], is_return: bool) -> ParametrizedTypeCoverage:
+        cov = super().analyze_coverage(matches, is_return)
+        return ParametrizedTypeCoverage(cov.hits, cov.total, [*cov.args_cov, None])  # ellipsis is non-coverable
+
+    def repr_matches(self, matches: ImmutableSet[_CollectionMatch]) -> str:
+        arg = self.element_type.repr_matches(self._flatten_matches(matches))
+        return f"tuple[{arg}, ...]"
 
 
 class UnknownAnnotation(TypeAnnotation):

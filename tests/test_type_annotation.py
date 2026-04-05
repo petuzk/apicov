@@ -1,4 +1,4 @@
-from typing import Any, Literal, Never, NoReturn, Optional, Union
+from typing import Any, Literal, Never, NoReturn, Optional, Tuple, Union  # noqa: UP035 (intentional usage of Tuple)
 
 import pytest
 
@@ -26,6 +26,23 @@ from apicov.type_annotation import SelfAnnotation, get_annotation
         (NoReturn, 42, None),
         (Literal["foo", "bar"], "bar", "Literal['bar']"),
         (Literal[Literal[Literal[1, 2, 3], "foo"], 5, None], 2, "Literal[2]"),  # noqa: RUF041 (intentionally nested)
+        (tuple[()], (), "tuple[()]"),
+        (tuple[()], [], None),
+        (tuple[int | str], (42,), "tuple[int]"),
+        (tuple[int, str | None], (42,), None),
+        (tuple[int, str | None], (42, "foo"), "tuple[int, str]"),
+        (Tuple[int, str | None], (42, None), "tuple[int, None]"),  # noqa: UP006 (intentional usage of Tuple)
+        (Tuple[int, str | None], (42, None, "foo"), None),  # noqa: UP006 (intentional usage of Tuple)
+        (list[int], [], None),  # typing semantics exception
+        (list[int], [1, 2, 3], "list[int]"),
+        (list[int], (1, 2, 3), None),
+        (list[int], ["foo"], None),
+        (list[int | str], ["foo", 42], "list[int | str]"),
+        (list[Literal["foo", "bar"]], ["foo", "bar"], "list[Literal['foo', 'bar']]"),
+        (tuple[int, ...], (), None),  # typing semantics exception
+        (tuple[int, ...], (42, 43, 44), "tuple[int, ...]"),
+        (tuple[int | str, ...], (42, 43, 44), "tuple[int, ...]"),
+        (Tuple[int | str, ...], ("foo", "bar"), "tuple[str, ...]"),  # noqa: UP006 (intentional usage of Tuple)
     ],
 )
 def test_type_annotation_match(annotation, value, match_str):
