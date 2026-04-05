@@ -9,6 +9,7 @@ from typing import Any, Self, get_overloads
 
 from apicov.classify import classify
 from apicov.type_annotation import NoAnnotation, SelfAnnotation, TypeAnnotation, TypeCoverage, TypeMatch, get_annotation
+from apicov.util import transpose_into_sets
 
 _repr = Repr(maxlong=20, maxstring=50, maxother=50).repr
 
@@ -80,10 +81,7 @@ class Overload:
         are_returns = (*([False] * len(self.param_annotations)), True)
 
         flattened = ((*params, return_match) for params, return_match in matches)
-        match_sets = list(map(set, zip(*flattened)))
-        # if there are no matches, create empty sets for each annotation
-        if not match_sets:
-            match_sets = [set() for _ in annotations]
+        match_sets = transpose_into_sets(flattened, n=len(annotations))  # group matches by annotation
         coverages = tuple(
             annotation.analyze_coverage(matches, is_ret)
             for annotation, matches, is_ret in zip(annotations, match_sets, are_returns)
