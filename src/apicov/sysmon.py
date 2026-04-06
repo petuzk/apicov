@@ -76,6 +76,8 @@ class Tracer[FT: FuncTracer]:
         self._known_codes: dict[CodeType, FT | None] = {}
 
     def __enter__(self) -> Self:
+        self._just_started = True
+        self._unmatched_tracker = 0
         self._call_stack: list[tuple[CodeType, FT | None, Any]] = []
         self.tool_id = _get_tool_id()
         _sm.use_tool_id(self.tool_id, "apicov")
@@ -90,15 +92,13 @@ class Tracer[FT: FuncTracer]:
         _sm.free_tool_id(self.tool_id)
 
         if exc_type is not MonitoringCallbackError:
-            assert not self._call_stack
+            assert len(self._call_stack) == self._unmatched_tracker
 
     # Signatures for sys.monitoring callbacks can be found here:
     # https://docs.python.org/3/library/_sm.html#callback-function-arguments
 
     def _start_callback(self, code: CodeType, instruction_offset: int) -> None:
         try:
-            if code is self.__exit__.__code__:
-                return  # entering our own __exit__ method, skip
             if not self._should_trace(code.co_filename):
                 return
             return self._start_callback_inner(code)
@@ -144,8 +144,6 @@ class Tracer[FT: FuncTracer]:
 
     def _return_callback(self, code: CodeType, instruction_offset: int, retval: object) -> None:
         try:
-            if code is self.__enter__.__code__:
-                return  # leaving our own __enter__ method, skip
             if not self._should_trace(code.co_filename):
                 return
             return self._return_callback_inner(code, retval)
@@ -153,6 +151,11 @@ class Tracer[FT: FuncTracer]:
             raise MonitoringCallbackError from e
 
     def _return_callback_inner(self, code: CodeType, retval: object) -> None:
+        if not self._call_stack and self._just_started:
+            self._unmatched_tracker += 1
+            return
+
+        self._just_started = False
         started_code, traced_func, key = self._call_stack.pop()
         assert started_code is code, f"mismatched start and return events: {started_code}, {code}"
 

@@ -1,6 +1,6 @@
 import inspect
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import reduce
 from operator import mul
 from reprlib import Repr
@@ -20,9 +20,9 @@ class Overload:
     """Represents a single overload of a function, i.e. a specific combination of parameter and return types."""
 
     original_func: AnyCallable
-    signature: inspect.Signature
-    param_annotations: tuple[TypeAnnotation, ...]  # type annotations for each parameter
-    return_annotation: TypeAnnotation  # type annotation for the return value
+    signature: inspect.Signature = field(compare=False)
+    param_annotations: tuple[TypeAnnotation, ...] = field(compare=False)  # type annotations for each parameter
+    return_annotation: TypeAnnotation = field(compare=False)  # type annotation for the return value
 
     @classmethod
     def from_callable(cls, func: AnyCallable, encapsulating_class: type | None = None) -> Self:
