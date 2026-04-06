@@ -2,8 +2,8 @@
 Changelog
 =========
 
-unreleased
-==========
+apicov 0.0.2
+============
 
 Added
 -----
