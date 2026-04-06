@@ -77,8 +77,6 @@ class Tracer[FT: FuncTracer]:
         self._known_codes: dict[CodeType, FT | None] = {}
 
     def __enter__(self) -> Self:
-        self._just_started = True
-        self._unmatched_tracker = 0
         self._call_stack: list[tuple[CodeType, FT | None, Any]] = []
         self.tool_id = _get_tool_id()
         _sm.use_tool_id(self.tool_id, "apicov")
@@ -99,7 +97,6 @@ class Tracer[FT: FuncTracer]:
         if self.tool_id is not None:
             # exiting gracefully (no MonitoringCallbackError)
             self._stop()
-            assert len(self._call_stack) == self._unmatched_tracker
 
     # Signatures for sys.monitoring callbacks can be found here:
     # https://docs.python.org/3/library/_sm.html#callback-function-arguments
@@ -151,6 +148,8 @@ class Tracer[FT: FuncTracer]:
         return None
 
     def _return_callback(self, code: CodeType, instruction_offset: int, retval: object) -> None:
+        if not self._call_stack:
+            return  # returning from tracer setup code, ignore it
         try:
             if not self._should_trace(code.co_filename):
                 return
@@ -160,11 +159,6 @@ class Tracer[FT: FuncTracer]:
             raise MonitoringCallbackError from e
 
     def _return_callback_inner(self, code: CodeType, retval: object) -> None:
-        if not self._call_stack and self._just_started:
-            self._unmatched_tracker += 1
-            return
-
-        self._just_started = False
         started_code, traced_func, key = self._call_stack.pop()
         assert started_code is code, f"mismatched start and return events: {started_code}, {code}"
 
