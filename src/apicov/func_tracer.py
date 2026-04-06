@@ -152,6 +152,7 @@ class FuncTracer:
     @classmethod
     def from_callable(cls, func: AnyCallable, encapsulating_class: type | None = None) -> Self:
         overloads = [Overload.from_callable(f, encapsulating_class) for f in get_overloads(func) or [func]]
+        overloads.sort(key=lambda o: len(o.param_annotations), reverse=True)  # try more specific overloads first
         return cls(
             func,
             {overload: {} for overload in overloads},
