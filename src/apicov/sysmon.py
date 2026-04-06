@@ -70,6 +70,7 @@ class GetFuncTracerFn[FT: FuncTracer](Protocol):
 
 class Tracer[FT: FuncTracer]:
     def __init__(self, should_trace: ShouldTraceFn, get_func_tracer: GetFuncTracerFn[FT]) -> None:
+        self.tool_id: int | None = None
         self._should_trace = should_trace
         self._get_func_tracer = get_func_tracer
         # _known_codes stores FuncTracer instances or None if the code is not traceable
@@ -87,11 +88,17 @@ class Tracer[FT: FuncTracer]:
         _sm.set_events(self.tool_id, _sm.events.PY_START | _sm.events.PY_RETURN | _sm.events.PY_UNWIND)
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback) -> None:
+    def _stop(self) -> None:
+        if self.tool_id is None:
+            return  # already stopped
         _sm.set_events(self.tool_id, _sm.events.NO_EVENTS)
         _sm.free_tool_id(self.tool_id)
+        self.tool_id = None
 
-        if exc_type is not MonitoringCallbackError:
+    def __exit__(self, exc_type: type, exc_value: object, traceback: object) -> None:
+        if self.tool_id is not None:
+            # exiting gracefully (no MonitoringCallbackError)
+            self._stop()
             assert len(self._call_stack) == self._unmatched_tracker
 
     # Signatures for sys.monitoring callbacks can be found here:
@@ -103,6 +110,7 @@ class Tracer[FT: FuncTracer]:
                 return
             return self._start_callback_inner(code)
         except Exception as e:
+            self._stop()
             raise MonitoringCallbackError from e
 
     def _start_callback_inner(self, code: CodeType) -> None:
@@ -148,6 +156,7 @@ class Tracer[FT: FuncTracer]:
                 return
             return self._return_callback_inner(code, retval)
         except Exception as e:
+            self._stop()
             raise MonitoringCallbackError from e
 
     def _return_callback_inner(self, code: CodeType, retval: object) -> None:
@@ -163,9 +172,6 @@ class Tracer[FT: FuncTracer]:
             traced_func.on_return(key, retval)
 
     def _unwind_callback(self, code: CodeType, instruction_offset: int, exception: BaseException) -> None:
-        if isinstance(exception, MonitoringCallbackError):
-            return  # an exception occured in our callbacks code (oopsie), nothing to trace
-
         if not self._should_trace(code.co_filename):
             return
 
