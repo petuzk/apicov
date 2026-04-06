@@ -25,6 +25,7 @@ dependencies = [
 
 [project.urls]
 Source = "https://github.com/petuzk/apicov"
+Changelog = "https://github.com/petuzk/apicov/blob/main/CHANGELOG.rst"
 
 [project.scripts]
 apicov = "apicov.cli:main"
