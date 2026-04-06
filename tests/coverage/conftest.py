@@ -1,3 +1,4 @@
+import os
 from functools import partial
 from pathlib import Path
 
@@ -18,7 +19,7 @@ class ApicovFixture:
 
     def __init__(self, test_path: Path):
         self.func_tracers: dict[AnyCallable, FuncTracer] = {}
-        self.tracer = Tracer(test_path.samefile, partial(_create_and_store_tracer, self.func_tracers))
+        self.tracer = Tracer(partial(_should_trace, test_path), partial(_create_and_store_tracer, self.func_tracers))
 
     def __enter__(self) -> None:
         self.tracer.__enter__()
@@ -45,3 +46,9 @@ def _create_and_store_tracer(
     tracer = FuncTracer.from_callable(func, encapsulating_class)
     storage[func] = tracer
     return tracer
+
+
+def _should_trace(test_file: str | Path, filename: str | Path) -> bool:
+    if filename.startswith("<") and filename.endswith(">"):
+        return False  # this is not a file on disk but some magic thing, skip it
+    return os.path.samefile(test_file, filename)
