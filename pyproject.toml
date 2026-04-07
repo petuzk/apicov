@@ -34,6 +34,11 @@ apicov = "apicov.cli:main"
 requires = ["flit_core >=3.4,<4"]
 build-backend = "flit_core.buildapi"
 
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+strict = true
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 120
 

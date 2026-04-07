@@ -15,7 +15,7 @@ from apicov.type_annotation import SelfAnnotation, get_annotation
         (int | str, "hello", "str"),
         (Union[int, str], 42, "int"),  # noqa: UP007 (intentional usage of Union to test support)
         (Union[int, str], 3.14, None),  # noqa: UP007 (intentional usage of Union to test support)
-        (Union[int, Union[str, None]], 3.14, None),  # noqa: UP007 (intentional usage of Union to test support)
+        (Union[int, Union[str, None]], None, "None"),  # noqa: UP007 (intentional usage of Union to test support)
         (type(None), None, "None"),
         (None, None, "None"),
         (None, 42, None),
