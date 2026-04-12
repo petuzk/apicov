@@ -3,12 +3,14 @@ import runpy
 import sys
 import traceback
 from contextlib import contextmanager
-from functools import lru_cache, partial
+from functools import partial
 
 from rich import print
 
+from apicov.file_selection import file_selection_predicate
 from apicov.func_tracer import FuncTracer, UnmatchedException, UnmatchedValue
 from apicov.html import generate_html_report
+from apicov.settings import ApicovSettings, find_config_file, get_settings_sources, iter_cli_config
 from apicov.sysmon import AnyCallable, Tracer
 from apicov.type_annotation import TypeMatch
 
@@ -32,15 +34,6 @@ def instrument_runpy(tracer):
         del runpy.exec
 
 
-@lru_cache
-def should_trace(filename: str) -> bool:
-    if filename.startswith("<") and filename.endswith(">"):
-        return False  # this is not a file on disk but some magic thing, skip it
-    if filename.startswith(sys.base_prefix):
-        return False  # skip standard library
-    return True
-
-
 def create_and_store_tracer(
     storage: list[FuncTracer], func: AnyCallable, encapsulating_class: type | None
 ) -> FuncTracer:
@@ -54,7 +47,13 @@ def main() -> int:
     parser.add_argument("script", nargs="?", default=None, help="Path to the script to execute")
     parser.add_argument("-m", dest="module", help="Run given module as a script")
     parser.add_argument("--html", action="store_true", help="Generate HTML report")
+
+    settings_grp = parser.add_argument_group("general settings")
+    for name, kwargs in iter_cli_config():
+        settings_grp.add_argument(f"--{name.replace('_', '-')}", **kwargs)
+
     args = parser.parse_args()
+    settings = ApicovSettings.from_sources(get_settings_sources(find_config_file(), args))
 
     if args.script and args.module:
         parser.error("cannot specify both a script and a module to run")
@@ -63,7 +62,7 @@ def main() -> int:
         return 1
 
     func_tracers: list[FuncTracer] = []  # store FuncTracers created by the tracer, to analyze them after execution
-    tracer = Tracer(should_trace, partial(create_and_store_tracer, func_tracers))
+    tracer = Tracer(file_selection_predicate(settings), partial(create_and_store_tracer, func_tracers))
     exit_code = 0
     try:
         with instrument_runpy(tracer):

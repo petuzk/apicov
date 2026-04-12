@@ -1,7 +1,10 @@
 import tomllib
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Self
+
+from .machinery import Setting, SettingsSourceList
 
 
 @dataclass(frozen=True)
@@ -10,6 +13,31 @@ class ApicovSettings:
 
     This defines all settings configurable in a config file or via CLI.
     """
+
+    include: Sequence[Path] = field(
+        default=(Path(),),  # root dir or cwd
+        metadata=Setting(
+            description="Files or directories to trace (defaults to project root directory)",
+            metavar="PATH",
+            nargs="+",
+        ).into_meta(),
+    )
+
+    exclude: Sequence[Path] = field(
+        default=(Path("test"), Path("tests")),
+        metadata=Setting(
+            description="Files or directories to exclude from tracing (default: test, tests)",
+            metavar="PATH",
+            nargs="+",
+        ).into_meta(),
+    )
+
+    @classmethod
+    def from_sources(cls, sources: SettingsSourceList) -> Self:
+        return cls(
+            include=sources.list_of_paths("include"),
+            exclude=sources.list_of_paths("exclude"),
+        )
 
 
 _CONFIG_FILES_PREFIXES = {
