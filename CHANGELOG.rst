@@ -2,6 +2,16 @@
 Changelog
 =========
 
+Note: this project is in early development, so expect breaking changes in every release.
+
+unreleased
+==========
+
+Added
+-----
+
+- Settings to ``include`` and ``exclude`` paths to trace, configurable via pyproject.toml, apicov.toml or CLI
+
 apicov 0.0.2
 ============
 
