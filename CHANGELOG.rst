@@ -11,6 +11,7 @@ Added
 -----
 
 - Settings to ``include`` and ``exclude`` paths to trace, configurable via pyproject.toml, apicov.toml or CLI
+- Serialization of apicov trace data into a file for later analysis and report generation
 
 apicov 0.0.2
 ============

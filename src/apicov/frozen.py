@@ -5,8 +5,10 @@ but can no longer be used to update coverage with new calls.
 """
 
 from datetime import datetime
+from enum import Enum, auto
 from importlib.metadata import version
-from typing import Literal, Self, overload
+from lzma import compress, decompress
+from typing import IO, Literal, Self, overload
 
 from pydantic import BaseModel, Field
 
@@ -114,3 +116,36 @@ class SerializedTypeMatch(BaseModel):
     """Corresponds to string representation of a `TypeMatch` instance."""
 
     match: str
+
+
+class FileFormat(Enum):
+    """Format of coverage data in a file."""
+
+    DEFAULT = auto()
+    """Default format: JSON-serialized data compressed with XZ. Not human-readable, but compact on disk."""
+
+    DEBUG = auto()
+    """Debug format: uncompressed JSON with indentation. Human-readable, but takes more disk space."""
+
+
+def dump(coverage_data: CoverageTrace, file: IO[bytes], fmt: FileFormat = FileFormat.DEFAULT) -> None:
+    """Serialize coverage data into a file."""
+    indent = 4 if fmt == FileFormat.DEBUG else None
+    serialized = coverage_data.model_dump_json(indent=indent).encode("utf-8")
+    if fmt == FileFormat.DEFAULT:
+        serialized = compress(serialized)
+    file.write(serialized)
+
+
+def load(file: IO[bytes]) -> CoverageTrace:
+    """Deserialize coverage data from a file. Format is auto-detected based on file content."""
+    pos = file.tell()
+    magic = file.read(1)
+    file.seek(pos)
+    if magic == b"\xfd":  # XZ
+        data = decompress(file.read())
+    elif magic == b"{":  # JSON
+        data = file.read()
+    else:
+        raise ValueError(f"unrecognized file format: {magic.hex()}")
+    return CoverageTrace.model_validate_json(data)

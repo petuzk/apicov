@@ -7,7 +7,9 @@ from contextlib import contextmanager
 
 from rich import print
 
+from apicov.datadir import ApicovDataDir
 from apicov.file_selection import file_selection_predicate
+from apicov.frozen import FileFormat, dump
 from apicov.func_tracer import UnmatchedException, UnmatchedValue
 from apicov.html import generate_html_report
 from apicov.settings import ApicovSettings, find_config_file, get_settings_sources, iter_cli_config
@@ -40,6 +42,7 @@ def main() -> int:
     parser.add_argument("script", nargs="?", default=None, help="Path to the script to execute")
     parser.add_argument("-m", dest="module", help="Run given module as a script")
     parser.add_argument("--html", action="store_true", help="Generate HTML report")
+    parser.add_argument("--debug-json", action="store_true", help="Dump raw coverage data in JSON format")
 
     settings_grp = parser.add_argument_group("general settings")
     for name, kwargs in iter_cli_config():
@@ -68,11 +71,17 @@ def main() -> int:
         traceback.print_exc()
         exit_code = 1
 
+    apicov_dir = ApicovDataDir.at()
+
+    with open(apicov_dir / "coverage", "wb") as file:
+        dump(storage.freeze(), file, FileFormat.DEBUG if args.debug_json else FileFormat.DEFAULT)
+
     if args.html:
-        with open("report.html", "w") as file:
+        report = apicov_dir / "report.html"
+        with open(report, "w") as file:
             for chunk in generate_html_report(storage.freeze()):
                 file.write(chunk)
-        print("✓ Coverage report generated: report.html")
+        print(f"✓ Coverage report generated: {report}")
         return 0
 
     header = f"Captured calls in {args.script or args.module}:"
