@@ -22,5 +22,4 @@ def _should_trace(includes: tuple[str, ...], excludes: tuple[str, ...], filename
         return False  # skip libraries (standard and venv)
     # os.path has lower overhead than pathlib, and also resolves ".." parts
     normalized = os.path.abspath(filename)
-    print(normalized, includes)
     return normalized.startswith(includes) and not normalized.startswith(excludes)
