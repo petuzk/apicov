@@ -1,6 +1,6 @@
 import inspect
 import sys
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Sequence
 from collections.abc import Set as ImmutableSet
 from dataclasses import dataclass
 from enum import Enum
@@ -80,15 +80,15 @@ class TypeCoverage:
 
 @dataclass(frozen=True, slots=True)
 class ParametrizedTypeCoverage(TypeCoverage):
-    args_cov: Collection[TypeCoverage | None]
+    args_cov: Sequence[TypeCoverage | Self | None]
     """Coverage corresponding to arguments of a ParametrizedTypeAnnotation.
 
-    This Collection must be of the same length as annotation's `get_args()`. Each object
+    This Sequence must be of the same length as annotation's `get_args()`. Each object
     is either a `TypeCoverage` if the corresponding argument is coverable, or None otherwise.
     """
 
     @classmethod
-    def from_args_cov(cls, args_cov: Collection[TypeCoverage | None], mode: Literal["add", "mul"]) -> Self:
+    def from_args_cov(cls, args_cov: Sequence[TypeCoverage | None], mode: Literal["add", "mul"]) -> Self:
         """Create self from aggregated argument coverages."""
         if mode == "add":
             aggregated = reduce(add, filter(None, args_cov), TypeCoverage(0, 0))

@@ -9,7 +9,15 @@ from typing import Any, Self, get_overloads
 
 from apicov.classify import classify
 from apicov.sysmon import AnyCallable
-from apicov.type_annotation import NoAnnotation, SelfAnnotation, TypeAnnotation, TypeCoverage, TypeMatch, get_annotation
+from apicov.type_annotation import (
+    NoAnnotation,
+    ParametrizedTypeCoverage,
+    SelfAnnotation,
+    TypeAnnotation,
+    TypeCoverage,
+    TypeMatch,
+    get_annotation,
+)
 from apicov.util import transpose_into_sets
 
 _repr = Repr(maxlong=20, maxstring=50, maxother=50).repr
@@ -94,8 +102,8 @@ class Overload:
 class OverloadCoverage:
     """Represents the detailed coverage of a single overload."""
 
-    param_coverages: tuple[TypeCoverage, ...]  # coverage of each parameter annotation
-    return_coverage: TypeCoverage  # coverage of the return annotation
+    param_coverages: tuple[TypeCoverage | ParametrizedTypeCoverage, ...]  # coverage of each parameter annotation
+    return_coverage: TypeCoverage | ParametrizedTypeCoverage  # coverage of the return annotation
 
     def total(self) -> TypeCoverage:
         """Calculate total coverage of this overload based on the coverage of its parameters and return type."""

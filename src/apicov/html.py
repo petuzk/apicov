@@ -1,42 +1,34 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from functools import reduce
-from itertools import groupby
 from operator import add
 from typing import Any
 
 from jinja2 import Environment, PackageLoader
 
-from apicov.func_tracer import FuncTracer, Overload, OverloadCoverage, UnmatchedException, UnmatchedValue
+from apicov.frozen import CoverageTrace, FuncCoverage, MatchedCall, OverloadCalls, SerializedTypeMatch, Type
+from apicov.func_tracer import UnmatchedException, UnmatchedValue
 from apicov.type_annotation import (
-    NoAnnotation,
-    ParametrizedTypeAnnotation,
     ParametrizedTypeCoverage,
-    TypeAnnotation,
     TypeCoverage,
-    TypeMatch,
     UnionAnnotation,
     UnknownAnnotation,
 )
 
 
-def generate_html_report(tracers: Iterable[FuncTracer]) -> Iterable[str]:
-    """Generate HTML report presenting the data captured by provided tracers."""
+def generate_html_report(coverage_data: CoverageTrace) -> Iterable[str]:
+    """Generate HTML report presenting the captured data."""
     env = Environment(loader=PackageLoader("apicov"), autoescape=True)
     template = env.get_template("coverage_report.html")
 
-    render_data = get_render_data(tracers)
+    render_data = get_render_data(coverage_data)
 
     # Render the template
     return template.generate(render_data)
 
 
-def get_render_data(tracers: Iterable[FuncTracer]) -> dict[str, Any]:
-    """Convert the data captured by provided tracers into a format expected by the report template."""
-    # sort tracers by filename (for grouping) and line number (for correct ordering in report)
-    sorted_tracers = sorted(tracers, key=lambda tr: (tr.filename, tr.lineno))
-    # group tracers by filename and generate report for each file
-    by_filename = groupby(sorted_tracers, key=lambda tr: tr.filename)
-    files_data = ((filename, *generate_file_report(file_tracers)) for filename, file_tracers in by_filename)
+def get_render_data(coverage_data: CoverageTrace) -> dict[str, Any]:
+    """Convert the captured data into a format expected by the report template."""
+    files_data = ((filename, *generate_file_report(funcs)) for filename, funcs in coverage_data.files.items())
     return {
         "files": [
             {
@@ -49,22 +41,22 @@ def get_render_data(tracers: Iterable[FuncTracer]) -> dict[str, Any]:
     }
 
 
-def generate_file_report(tracers: Iterable[FuncTracer]) -> tuple[TypeCoverage, list[dict[str, Any]]]:
+def generate_file_report(funcs: Mapping[str, FuncCoverage]) -> tuple[TypeCoverage, list[dict[str, Any]]]:
     """Generate report data for a single source file, including coverage for the whole file and the member tree."""
     # use fictional root node to simplify processing
     classmap: dict[str | None, dict[str, Any]] = {None: {"members": []}}
 
-    # iterate over tracers (sorted by line number) and build member tree based on their qualified name
+    # iterate over tracers (pre-sorted by line number) and build member tree based on their qualified name
     target: list[dict[str, Any]]
-    for tr in tracers:
-        for parent_class in (None, *tr.qualname.split(".")[:-1]):
+    for qualname, func in funcs.items():
+        for parent_class in (None, *qualname.split(".")[:-1]):
             if parent_class not in classmap:
                 new_node: dict[str, Any] = {"kind": "class", "name": parent_class, "members": []}
                 # target is always defined because the first iteration does not satisfy the condition
                 target.append(new_node)  # noqa: F821
                 classmap[parent_class] = new_node
             target = classmap[parent_class]["members"]
-        target.extend(process_tracer(tr))
+        target.extend(process_tracer(qualname, func))
 
     # calculate coverage for each node (including root) based on its members, and convert coverage objects into dicts
     # iterate in reverse order to ensure that child nodes are processed before their parents
@@ -79,25 +71,29 @@ def generate_file_report(tracers: Iterable[FuncTracer]) -> tuple[TypeCoverage, l
     return classmap[None]["coverage"], classmap[None]["members"]
 
 
-def process_tracer(tracer: FuncTracer) -> list[dict[str, Any]]:
+def process_tracer(qualname: str, func: FuncCoverage) -> list[dict[str, Any]]:
     """Convert FuncTracer's overloads into a format suitable for rendering in the report."""
-    func_name = tracer.qualname.rsplit(".", 1)[-1]
+    func_name = qualname.rsplit(".", 1)[-1]
     converted = [
         {
             "kind": "function",
             "name": func_name,
             "lineno": overload.lineno,
-            "signature": convert_signature(overload, ov_cov),
-            "coverage": ov_cov.total(),  # add raw TypeCoverage, will be converted in generate_file_report
-            "call_details": get_call_details(tracer.matched_calls[overload]),
+            "signature": convert_signature(overload),
+            "coverage": overload.coverage.total(),  # add raw TypeCoverage, will be converted in generate_file_report
+            "call_details": get_call_details(overload.calls),
         }
-        for overload, ov_cov in tracer.analyze_coverage().items()
+        for overload in func.matched_calls
     ]
 
     unmatched_calls = [
-        {"args": ", ".join(f"{name}: {arg}" for name, arg in unmatched_args)}
-        | ({"return_type": str(result)} if isinstance(result, UnmatchedValue) else {"result": f"raised {result}"})
-        for unmatched_args, result in tracer.unmatched_calls
+        {"args": ", ".join(f"{name}: {arg}" for name, arg in call.params.items())}
+        | (
+            {"return_type": str(call.result)}
+            if isinstance(call.result, UnmatchedValue)
+            else {"result": f"raised {call.result}"}
+        )
+        for call in func.unmatched_calls
     ]
 
     if unmatched_calls:
@@ -108,7 +104,7 @@ def process_tracer(tracer: FuncTracer) -> list[dict[str, Any]]:
             new_node = {
                 "kind": "function",
                 "name": func_name,
-                "lineno": tracer.lineno,
+                "lineno": func.lineno,
                 "signature": None,
                 "coverage": None,
                 "call_details": {"unmatched_calls": unmatched_calls},
@@ -118,69 +114,64 @@ def process_tracer(tracer: FuncTracer) -> list[dict[str, Any]]:
     return converted
 
 
-def get_call_details(
-    calls: Iterable[tuple[tuple[TypeMatch, ...], TypeMatch | UnmatchedValue | UnmatchedException]],
-) -> dict[str, Any]:
+def get_call_details(calls: Iterable[MatchedCall]) -> dict[str, Any]:
     """Convert signature's call details (parameters, return value, exception) into a format expected by template."""
     matched = []
     unmatched_ret = []
     exceptions = []
-    for params, result in calls:
-        converted_params = {"parameters": [str(p) for p in params]}
-        if isinstance(result, TypeMatch):
-            matched.append(converted_params | {"return_type": str(result)})
-        elif isinstance(result, UnmatchedValue):
-            unmatched_ret.append(converted_params | {"return_type": str(result)})
-        elif isinstance(result, UnmatchedException):
-            exceptions.append(converted_params | {"result": f"raised {result}"})
+    for call in calls:
+        converted_params = {"parameters": [p.match for p in call.params]}
+        if isinstance(call.result, SerializedTypeMatch):
+            matched.append(converted_params | {"return_type": call.result.match})
+        elif isinstance(call.result, UnmatchedValue):
+            unmatched_ret.append(converted_params | {"return_type": call.result.type_label})
+        elif isinstance(call.result, UnmatchedException):
+            exceptions.append(converted_params | {"result": f"raised {call.result.exc_repr}"})
         else:
-            raise TypeError(f"invalid result type: {type(result)}")
+            raise TypeError(f"invalid result type: {type(call.result)}")
     result_dict = {"matched": matched, "unmatched_ret": unmatched_ret, "exceptions": exceptions}
     return {k: v for k, v in result_dict.items() if v}
 
 
-def convert_signature(overload: Overload, coverage: OverloadCoverage) -> dict[str, Any]:
+def convert_signature(overload: OverloadCalls) -> dict[str, Any]:
     """Convert an overload's signature and coverage data into a format expected by template."""
     return {
         "params": {
             param_name: convert_type_annotation(anno, cov)
-            for param_name, anno, cov in zip(
-                overload.signature.parameters, overload.param_annotations, coverage.param_coverages
+            for (param_name, anno), cov in zip(
+                overload.signature.params_annotations.items(), overload.coverage.param_coverages
             )
         },
-        "ret": convert_type_annotation(overload.return_annotation, coverage.return_coverage),
+        "ret": convert_type_annotation(overload.signature.return_annotation, overload.coverage.return_coverage),
     }
 
 
-def convert_type_annotation(anno: TypeAnnotation | str, coverage: TypeCoverage | None) -> list[dict[str, Any]] | None:
+def convert_type_annotation(anno: Type | None, coverage: TypeCoverage | None) -> list[dict[str, Any]] | None:
     """Convert a type annotation into a format expected by template.
 
     Each type is represented as a list of union options, with coverage info for each option.
     If the annotation is not a union, the list will have only one element.
     If there is no annotation, None is returned.
     """
-    if isinstance(anno, NoAnnotation):
+    if anno is None:
         return None
-    if isinstance(anno, UnionAnnotation):
+    if anno.cls == UnionAnnotation.__name__:
         assert isinstance(coverage, ParametrizedTypeCoverage)
-        return list(map(convert_single_type_annotation, anno.options, coverage.args_cov))
-    if isinstance(anno, UnknownAnnotation):
+        assert anno.args and all(isinstance(arg, Type) for arg in anno.args)
+        return list(map(convert_single_type_annotation, anno.args, coverage.args_cov))
+    if anno.cls == UnknownAnnotation.__name__:
         # display UnknownAnnotation as uncoverable
         coverage = None
     return [convert_single_type_annotation(anno, coverage)]
 
 
-def convert_single_type_annotation(anno: TypeAnnotation | str, coverage: TypeCoverage | None) -> dict[str, Any]:
+def convert_single_type_annotation(anno: Type, coverage: TypeCoverage | None) -> dict[str, Any]:
     """Convert a single (non-union) type annotation into a format expected by template."""
-    cov_type = {"cov_type": get_cov_type(coverage)}
-    match anno:
-        case ParametrizedTypeAnnotation():
-            return cov_type | {"name": anno.get_origin(), "args": get_type_args(anno, coverage)}
-        case TypeAnnotation():
-            return cov_type | {"name": anno.get_origin(), "args": None}
-        case str(name):
-            return cov_type | {"name": name, "args": None}
-    raise TypeError(f"unexpected annotation: {anno!r}")
+    return {
+        "cov_type": get_cov_type(coverage),
+        "name": anno.origin,
+        "args": None if anno.args is None else get_type_args(anno.args, coverage),
+    }
 
 
 def get_cov_type(coverage: TypeCoverage | None) -> str:
@@ -193,10 +184,10 @@ def get_cov_type(coverage: TypeCoverage | None) -> str:
     return "cov-partial"
 
 
-def get_type_args(anno: ParametrizedTypeAnnotation, coverage: TypeCoverage | None) -> list[list[dict[str, Any]]]:
+def get_type_args(args: Iterable[Type], coverage: TypeCoverage | None) -> list[list[dict[str, Any]]]:
     # dealing with a parametrized type annotation, so expect parametrized coverage
     assert isinstance(coverage, ParametrizedTypeCoverage)
-    return list(filter(None, map(convert_type_annotation, anno.get_args(), coverage.args_cov)))
+    return list(filter(None, map(convert_type_annotation, args, coverage.args_cov)))
 
 
 def convert_coverage(coverage: TypeCoverage) -> dict[str, Any]:

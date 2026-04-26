@@ -1,17 +1,18 @@
 import argparse
+import itertools
 import runpy
 import sys
 import traceback
 from contextlib import contextmanager
-from functools import partial
 
 from rich import print
 
 from apicov.file_selection import file_selection_predicate
-from apicov.func_tracer import FuncTracer, UnmatchedException, UnmatchedValue
+from apicov.func_tracer import UnmatchedException, UnmatchedValue
 from apicov.html import generate_html_report
 from apicov.settings import ApicovSettings, find_config_file, get_settings_sources, iter_cli_config
-from apicov.sysmon import AnyCallable, Tracer
+from apicov.sysmon import Tracer
+from apicov.tracer_storage import TracerStorage
 from apicov.type_annotation import TypeMatch
 
 
@@ -34,14 +35,6 @@ def instrument_runpy(tracer):
         del runpy.exec
 
 
-def create_and_store_tracer(
-    storage: list[FuncTracer], func: AnyCallable, encapsulating_class: type | None
-) -> FuncTracer:
-    tracer = FuncTracer.from_callable(func, encapsulating_class)
-    storage.append(tracer)
-    return tracer
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="API Coverage tool")
     parser.add_argument("script", nargs="?", default=None, help="Path to the script to execute")
@@ -61,8 +54,8 @@ def main() -> int:
         parser.print_help()
         return 1
 
-    func_tracers: list[FuncTracer] = []  # store FuncTracers created by the tracer, to analyze them after execution
-    tracer = Tracer(file_selection_predicate(settings), partial(create_and_store_tracer, func_tracers))
+    storage = TracerStorage()
+    tracer = Tracer(file_selection_predicate(settings), storage.get_tracer)
     exit_code = 0
     try:
         with instrument_runpy(tracer):
@@ -77,15 +70,15 @@ def main() -> int:
 
     if args.html:
         with open("report.html", "w") as file:
-            for chunk in generate_html_report(func_tracers):
+            for chunk in generate_html_report(storage.freeze()):
                 file.write(chunk)
         print("✓ Coverage report generated: report.html")
         return 0
 
-    header = f"Captured {len(func_tracers)} called functions in {args.script or args.module}:"
+    header = f"Captured calls in {args.script or args.module}:"
     print("=" * len(header))
     print(header)
-    for func_info in func_tracers:
+    for func_info in itertools.chain.from_iterable(d.values() for d in storage.tracers.values()):
         formatted_name = f"[bold]{func_info.module}[/].[blue bold]{func_info.qualname}[/]"
         for overload, coverage in func_info.analyze_coverage().items():
             print(f"{formatted_name}[bold]{overload.signature}[/]: {coverage.total().ratio * 100:.0f}%")
