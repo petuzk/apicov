@@ -33,11 +33,9 @@ def generate_html_report(tracers: Iterable[FuncTracer]) -> Iterable[str]:
 def get_render_data(tracers: Iterable[FuncTracer]) -> dict[str, Any]:
     """Convert the data captured by provided tracers into a format expected by the report template."""
     # sort tracers by filename (for grouping) and line number (for correct ordering in report)
-    sorted_tracers = sorted(
-        tracers, key=lambda tr: (tr.original_func.__code__.co_filename, tr.original_func.__code__.co_firstlineno)
-    )
+    sorted_tracers = sorted(tracers, key=lambda tr: (tr.filename, tr.lineno))
     # group tracers by filename and generate report for each file
-    by_filename = groupby(sorted_tracers, key=lambda tr: tr.original_func.__code__.co_filename)
+    by_filename = groupby(sorted_tracers, key=lambda tr: tr.filename)
     files_data = ((filename, *generate_file_report(file_tracers)) for filename, file_tracers in by_filename)
     return {
         "files": [
@@ -59,7 +57,7 @@ def generate_file_report(tracers: Iterable[FuncTracer]) -> tuple[TypeCoverage, l
     # iterate over tracers (sorted by line number) and build member tree based on their qualified name
     target: list[dict[str, Any]]
     for tr in tracers:
-        for parent_class in (None, *tr.original_func.__qualname__.split(".")[:-1]):
+        for parent_class in (None, *tr.qualname.split(".")[:-1]):
             if parent_class not in classmap:
                 new_node: dict[str, Any] = {"kind": "class", "name": parent_class, "members": []}
                 # target is always defined because the first iteration does not satisfy the condition
@@ -83,12 +81,12 @@ def generate_file_report(tracers: Iterable[FuncTracer]) -> tuple[TypeCoverage, l
 
 def process_tracer(tracer: FuncTracer) -> list[dict[str, Any]]:
     """Convert FuncTracer's overloads into a format suitable for rendering in the report."""
-    func_name = tracer.original_func.__qualname__.rsplit(".", 1)[-1]
+    func_name = tracer.qualname.rsplit(".", 1)[-1]
     converted = [
         {
             "kind": "function",
             "name": func_name,
-            "lineno": overload.original_func.__code__.co_firstlineno,
+            "lineno": overload.lineno,
             "signature": convert_signature(overload, ov_cov),
             "coverage": ov_cov.total(),  # add raw TypeCoverage, will be converted in generate_file_report
             "call_details": get_call_details(tracer.matched_calls[overload]),
@@ -110,7 +108,7 @@ def process_tracer(tracer: FuncTracer) -> list[dict[str, Any]]:
             new_node = {
                 "kind": "function",
                 "name": func_name,
-                "lineno": tracer.original_func.__code__.co_firstlineno,
+                "lineno": tracer.lineno,
                 "signature": None,
                 "coverage": None,
                 "call_details": {"unmatched_calls": unmatched_calls},

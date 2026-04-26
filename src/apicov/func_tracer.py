@@ -19,7 +19,7 @@ _repr = Repr(maxlong=20, maxstring=50, maxother=50).repr
 class Overload:
     """Represents a single overload of a function, i.e. a specific combination of parameter and return types."""
 
-    original_func: AnyCallable
+    lineno: int
     signature: inspect.Signature = field(compare=False)
     param_annotations: tuple[TypeAnnotation, ...] = field(compare=False)  # type annotations for each parameter
     return_annotation: TypeAnnotation = field(compare=False)  # type annotation for the return value
@@ -32,7 +32,7 @@ class Overload:
             # perhaps the exception comes from evaluating stringized annotations, try again without evaluating them
             signature = inspect.signature(func)
         return cls(
-            func,
+            func.__code__.co_firstlineno,
             signature,
             tuple(
                 cls._get_param_annotation(i, param, encapsulating_class)
@@ -138,7 +138,10 @@ class FuncTracer:
     type UnmatchedArgs = tuple[tuple[str, UnmatchedValue], ...]  # represents a mapping immutably
     type UnmatchedResult = UnmatchedValue | UnmatchedException
 
-    original_func: AnyCallable
+    module: str
+    qualname: str
+    filename: str
+    lineno: int
     matched_calls: Mapping[
         # For each overload, store all calls that matched its parameters as a tuple
         # (matches for parameters, return match or UnmatchedResult)
@@ -154,7 +157,10 @@ class FuncTracer:
         overloads = [Overload.from_callable(f, encapsulating_class) for f in get_overloads(func) or [func]]
         overloads.sort(key=lambda o: len(o.param_annotations), reverse=True)  # try more specific overloads first
         return cls(
-            func,
+            func.__module__,
+            func.__qualname__,
+            func.__code__.co_filename,
+            func.__code__.co_firstlineno,
             {overload: {} for overload in overloads},
             {},
         )

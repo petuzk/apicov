@@ -86,8 +86,7 @@ def main() -> int:
     print("=" * len(header))
     print(header)
     for func_info in func_tracers:
-        func = func_info.original_func
-        formatted_name = f"[bold]{func.__module__}[/].[blue bold]{func.__qualname__}[/]"
+        formatted_name = f"[bold]{func_info.module}[/].[blue bold]{func_info.qualname}[/]"
         for overload, coverage in func_info.analyze_coverage().items():
             print(f"{formatted_name}[bold]{overload.signature}[/]: {coverage.total().ratio * 100:.0f}%")
             calls = func_info.matched_calls[overload]
