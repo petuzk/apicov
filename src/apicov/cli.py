@@ -4,12 +4,13 @@ import runpy
 import sys
 import traceback
 from contextlib import contextmanager
+from pathlib import Path
 
 from rich import print
 
 from apicov.datadir import ApicovDataDir
 from apicov.file_selection import file_selection_predicate
-from apicov.frozen import FileFormat, dump
+from apicov.frozen import CoverageTrace, FileFormat, dump, load
 from apicov.func_tracer import UnmatchedException, UnmatchedValue
 from apicov.html import generate_html_report
 from apicov.settings import ApicovSettings, find_config_file, get_settings_sources, iter_cli_config
@@ -39,23 +40,43 @@ def instrument_runpy(tracer):
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="API Coverage tool")
-    parser.add_argument("script", nargs="?", default=None, help="Path to the script to execute")
-    parser.add_argument("-m", dest="module", help="Run given module as a script")
-    parser.add_argument("--html", action="store_true", help="Generate HTML report")
-    parser.add_argument("--debug-json", action="store_true", help="Dump raw coverage data in JSON format")
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    settings_grp = parser.add_argument_group("general settings")
+    run_parser = subparsers.add_parser("run", help="Run a script or module with API coverage tracing")
+    run_parser.add_argument(
+        "script", nargs="?", default=None, help="Path to the script to execute (mutually exclusive with '-m')"
+    )
+    run_parser.add_argument("-m", dest="module", help="Run given module as a script (mutually exclusive with 'script')")
+    run_parser.add_argument("--html", action="store_true", help="Generate HTML report")
+    run_parser.add_argument("--debug-json", action="store_true", help="Dump raw coverage data in JSON format")
+
+    settings_grp = run_parser.add_argument_group("general settings")
     for name, kwargs in iter_cli_config():
         settings_grp.add_argument(f"--{name.replace('_', '-')}", **kwargs)
 
-    args = parser.parse_args()
-    settings = ApicovSettings.from_sources(get_settings_sources(find_config_file(), args))
+    html_parser = subparsers.add_parser("html", help="Generate HTML report from coverage file")
 
+    args = parser.parse_args()
+    config_file = find_config_file()
+    settings = ApicovSettings.from_sources(get_settings_sources(config_file, args))
+    apicov_dir = ApicovDataDir.at(config_file.path.parent if config_file else None)
+
+    if args.command == "run":
+        return run_command(run_parser, args, settings, apicov_dir)
+    if args.command == "html":
+        return html_command(html_parser, args, settings, apicov_dir)
+
+    parser.error("no command specified")
+
+
+def run_command(
+    parser: argparse.ArgumentParser, args: argparse.Namespace, settings: ApicovSettings, apicov_dir: ApicovDataDir
+) -> int:
+    """Execute a script or module with tracer instrumentation and optionally generate HTML report."""
     if args.script and args.module:
         parser.error("cannot specify both a script and a module to run")
     elif not args.script and not args.module:
-        parser.print_help()
-        return 1
+        parser.error("must specify a script or a module to run")
 
     storage = TracerStorage()
     tracer = Tracer(file_selection_predicate(settings), storage.get_tracer)
@@ -71,18 +92,14 @@ def main() -> int:
         traceback.print_exc()
         exit_code = 1
 
-    apicov_dir = ApicovDataDir.at().ensure()
+    coverage_data = storage.freeze()
 
-    with open(apicov_dir / "coverage", "wb") as file:
-        dump(storage.freeze(), file, FileFormat.DEBUG if args.debug_json else FileFormat.DEFAULT)
+    with open(apicov_dir.ensure() / "coverage", "wb") as file:
+        dump(coverage_data, file, FileFormat.DEBUG if args.debug_json else FileFormat.DEFAULT)
 
     if args.html:
-        report = apicov_dir / "report.html"
-        with open(report, "w") as file:
-            for chunk in generate_html_report(storage.freeze()):
-                file.write(chunk)
-        print(f"✓ Coverage report generated: {report}")
-        return 0
+        generate_and_open_report(coverage_data, apicov_dir)
+        return exit_code
 
     header = f"Captured calls in {args.script or args.module}:"
     print("=" * len(header))
@@ -112,6 +129,47 @@ def main() -> int:
                     print(f"  ({args_str}) raised {result.exc_repr}")
 
     return exit_code
+
+
+def html_command(
+    parser: argparse.ArgumentParser, args: argparse.Namespace, settings: ApicovSettings, apicov_dir: ApicovDataDir
+) -> int:
+    """Generate HTML report from a previously saved coverage file."""
+    coverage_file = apicov_dir / "coverage"
+    try:
+        with open(coverage_file, "rb") as file:
+            frozen_data = load(file)
+    except FileNotFoundError:
+        parser.error(
+            f"coverage file not found at {maybe_relative(coverage_file)}.\n"
+            "Run a script with `run` command to generate coverage data."
+        )
+
+    generate_and_open_report(frozen_data, apicov_dir)
+    return 0
+
+
+def generate_and_open_report(coverage_data: CoverageTrace, apicov_dir: ApicovDataDir) -> None:
+    """Generate an HTML report from coverage data into the specified directory."""
+    report = apicov_dir.ensure() / "report.html"
+    with open(report, "w") as file:
+        for chunk in generate_html_report(coverage_data):
+            file.write(chunk)
+    print(f"✓ Coverage report generated: {maybe_relative(report)}")
+
+    # Open the report in the web browser if running in an interactive terminal
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        import webbrowser
+
+        webbrowser.open(report.as_uri())
+
+
+def maybe_relative(path: Path) -> Path:
+    """Convert path to a relative one if it's inside the current working directory, for nicer display."""
+    try:
+        return path.relative_to(Path.cwd())
+    except ValueError:
+        return path
 
 
 if __name__ == "__main__":
