@@ -71,7 +71,7 @@ def main() -> int:
         traceback.print_exc()
         exit_code = 1
 
-    apicov_dir = ApicovDataDir.at()
+    apicov_dir = ApicovDataDir.at().ensure()
 
     with open(apicov_dir / "coverage", "wb") as file:
         dump(storage.freeze(), file, FileFormat.DEBUG if args.debug_json else FileFormat.DEFAULT)

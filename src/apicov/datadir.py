@@ -38,16 +38,13 @@ class ApicovDataDir:
         self.path = Path(path).absolute()
 
     def __fspath__(self) -> str:
-        self._ensure_valid()
         return str(self.path)
 
     def __truediv__(self, other: str | Path) -> Path:
-        pth = self.path / other
-        if pth is not NotImplemented:
-            self._ensure_valid()
-        return pth
+        return self.path / other
 
-    def _ensure_valid(self) -> None:
+    def ensure(self) -> Self:
+        """Ensure that the directory exists and is ready for writing into."""
         if not self.path.is_dir():
             self.path.mkdir()
 
@@ -55,3 +52,5 @@ class ApicovDataDir:
             pth = self.path / filename
             if not pth.exists():
                 pth.write_text(content)
+
+        return self
