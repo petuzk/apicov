@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from apicov.settings.machinery import SettingsSourceList, cli_dest, get_settings_sources
+from apicov.settings.machinery import RawConfigFile, SettingsSourceList, cli_dest, get_settings_sources
 
 DUMMY_CONFIG_PATH = Path("/tmp/dummy.toml")
 
@@ -21,7 +21,7 @@ def settings_sources(
 ) -> SettingsSourceList:
     return get_settings_sources(
         settings_type,
-        (DUMMY_CONFIG_PATH, config) if config else None,
+        RawConfigFile(DUMMY_CONFIG_PATH, config) if config else None,
         Namespace(**{cli_dest(settings_type, name): value for name, value in (cli or {}).items()}),
     )
 

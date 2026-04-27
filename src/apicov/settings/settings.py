@@ -2,9 +2,9 @@ import tomllib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 
-from .machinery import Setting, SettingsSourceList
+from .machinery import RawConfigFile, Setting, SettingsSourceList
 
 
 @dataclass(frozen=True)
@@ -47,7 +47,7 @@ _CONFIG_FILES_PREFIXES = {
 }
 
 
-def find_config_file(root: Path | None = None) -> tuple[Path, dict[str, Any]] | None:
+def find_config_file(root: Path | None = None) -> RawConfigFile | None:
     """Find and parse a configuration file in specified `root` directory, or any directory from CWD and up."""
     if root is None:
         cwd = Path.cwd()
@@ -66,6 +66,6 @@ def find_config_file(root: Path | None = None) -> tuple[Path, dict[str, Any]] | 
                 config = config.get(key, {})
             if not isinstance(config, dict):
                 raise ValueError(f"config in {path} is not a dict")
-            return path, config
+            return RawConfigFile(path, config)
 
     return None

@@ -60,9 +60,15 @@ def iter_cli_config(settings_type: type) -> Iterator[tuple[str, dict[str, Any]]]
             yield name, kwargs
 
 
-def get_settings_sources(
-    settings_type: type, config: tuple[Path, dict[str, Any]] | None, cli: Namespace
-) -> "SettingsSourceList":
+@dataclass(frozen=True)
+class RawConfigFile:
+    """Represents a raw configuration file found in the project, without any processing or validation."""
+
+    path: Path
+    raw_config: dict[str, Any]
+
+
+def get_settings_sources(settings_type: type, config: RawConfigFile | None, cli: Namespace) -> "SettingsSourceList":
     """Build SettingsSourceList for `settings_type` from given config (if any) and parsed CLI namespace.
 
     `config` must be a tuple of config file path and a dictionary parsed from it, or None if
@@ -73,7 +79,7 @@ def get_settings_sources(
     """
     settings = [_source_from_cli(settings_type, cli)]  # cli has highest precedence
     if config is not None:
-        config_source = _source_from_config(settings_type, *config)
+        config_source = _source_from_config(settings_type, config.path, config.raw_config)
         defaults_path_base = config_source.path_base
         settings.append(config_source)
     else:
