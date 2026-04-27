@@ -1,5 +1,4 @@
 import argparse
-import itertools
 import runpy
 import sys
 import traceback
@@ -11,12 +10,10 @@ from rich import print
 from apicov.datadir import ApicovDataDir
 from apicov.file_selection import file_selection_predicate
 from apicov.frozen import CoverageTrace, FileFormat, dump, load
-from apicov.func_tracer import UnmatchedException, UnmatchedValue
 from apicov.html import generate_html_report
 from apicov.settings import ApicovSettings, find_config_file, get_settings_sources, iter_cli_config
 from apicov.sysmon import Tracer
 from apicov.tracer_storage import TracerStorage
-from apicov.type_annotation import TypeMatch
 
 
 @contextmanager
@@ -93,40 +90,20 @@ def run_command(
         exit_code = 1
 
     coverage_data = storage.freeze()
+    coverage_file = apicov_dir.ensure() / "coverage"
 
-    with open(apicov_dir.ensure() / "coverage", "wb") as file:
+    with open(coverage_file, "wb") as file:
         dump(coverage_data, file, FileFormat.DEBUG if args.debug_json else FileFormat.DEFAULT)
+
+    print(f"✓ Coverage data saved: {maybe_relative(coverage_file)}")
 
     if args.html:
         generate_and_open_report(coverage_data, apicov_dir)
-        return exit_code
-
-    header = f"Captured calls in {args.script or args.module}:"
-    print("=" * len(header))
-    print(header)
-    for func_info in itertools.chain.from_iterable(d.values() for d in storage.tracers.values()):
-        formatted_name = f"[bold]{func_info.module}[/].[blue bold]{func_info.qualname}[/]"
-        for overload, coverage in func_info.analyze_coverage().items():
-            print(f"{formatted_name}[bold]{overload.signature}[/]: {coverage.total().ratio * 100:.0f}%")
-            calls = func_info.matched_calls[overload]
-            if not calls:
-                print("  [italic]no calls[/]")
-            for param_matches, result in calls:
-                args_str = ", ".join(str(m) for m in param_matches)
-                if isinstance(result, TypeMatch):
-                    print(f"  ({args_str}) -> {result}")
-                elif isinstance(result, UnmatchedValue):
-                    print(f"  ({args_str}) -> [red bold]{result}[/]")
-                elif isinstance(result, UnmatchedException):
-                    print(f"  ({args_str}) [red italic]raised {result.exc_repr}[/]")
-        if func_info.unmatched_calls:
-            print(f"{formatted_name} [italic]unmatched[/]:")
-            for unmatched_args, result in func_info.unmatched_calls:
-                args_str = ", ".join(f"{name}: {arg}" for name, arg in unmatched_args)
-                if isinstance(result, UnmatchedValue):
-                    print(f"  ({args_str}) -> {result}")
-                elif isinstance(result, UnmatchedException):
-                    print(f"  ({args_str}) raised {result.exc_repr}")
+    else:
+        print(
+            "Run `apicov html` to generate a report from the saved coverage data, "
+            "or use `apicov run --html` to generate the report without the extra step."
+        )
 
     return exit_code
 
