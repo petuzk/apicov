@@ -5,8 +5,6 @@ import traceback
 from contextlib import contextmanager
 from pathlib import Path
 
-from rich import print
-
 from apicov.datadir import ApicovDataDir
 from apicov.file_selection import file_selection_predicate
 from apicov.frozen import CoverageTrace, FileFormat, dump, load
